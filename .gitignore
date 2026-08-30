@@ -15,3 +15,6 @@ __pycache__/
 *.pem
 *.key
 *.crt
+
+# artefatti build TypeScript
+*.tsbuildinfo
