@@ -1,3 +1,5 @@
+import base64
+import binascii
 import hashlib
 import hmac
 import secrets
@@ -20,13 +22,31 @@ _hasher = PasswordHasher(
 _DUMMY_HASH = _hasher.hash("dummy-value-for-timing-equalisation")
 
 
+def canonical_auth_key(value: str) -> str:
+    """L'auth_key viaggia come stringa base64 e viene hashata come stringa:
+    senza normalizzare, la CODIFICA diventa parte della credenziale. Lo stesso
+    segreto emesso con padding (base64.urlsafe_b64encode di Python) o senza
+    (btoa + replace di JavaScript) produce due credenziali diverse, e un client
+    non riesce ad autenticarsi su un account creato dall'altro.
+
+    Si normalizza ai byte e si ricodifica in forma unica, cosi' alfabeto e
+    padding smettono di contare."""
+    text = value.strip().replace("-", "+").replace("_", "/")
+    text += "=" * (-len(text) % 4)
+    try:
+        raw = base64.b64decode(text, validate=True)
+    except (binascii.Error, ValueError):
+        return value.strip()  # non e' base64: si hasha cosi' com'e'
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
 def hash_auth_key(auth_key_b64: str) -> str:
-    return _hasher.hash(auth_key_b64)
+    return _hasher.hash(canonical_auth_key(auth_key_b64))
 
 
 def verify_auth_key(stored_hash: str | None, auth_key_b64: str) -> bool:
     try:
-        _hasher.verify(stored_hash or _DUMMY_HASH, auth_key_b64)
+        _hasher.verify(stored_hash or _DUMMY_HASH, canonical_auth_key(auth_key_b64))
         return stored_hash is not None
     except VerifyMismatchError:
         return False

@@ -365,8 +365,21 @@ export async function downloadFile(session: Session, f: FileOut): Promise<{ blob
 
 export async function loadVault(session: Session) {
   const state = await api.sync(0);
-  const items = await Promise.all(state.items.map((i) => decryptItem(session, i)));
-  return { seq: state.seq, items, files: state.files };
+
+  // Con Promise.all un solo item illeggibile (ciphertext corrotto, AAD non
+  // combaciante) faceva fallire l'intero caricamento e il vault appariva
+  // vuoto. In un password manager e' il caso peggiore: si perde l'accesso a
+  // tutto per colpa di una riga. Qui si isola il danno.
+  const items: DecryptedItem[] = [];
+  const unreadable: string[] = [];
+  for (const raw of state.items) {
+    try {
+      items.push(await decryptItem(session, raw));
+    } catch {
+      unreadable.push(raw.id);
+    }
+  }
+  return { seq: state.seq, items, files: state.files, unreadable };
 }
 
 export { utf8 };

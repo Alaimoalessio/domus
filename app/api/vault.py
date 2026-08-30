@@ -154,9 +154,30 @@ def delete_item(item_id: str, db: DB, user: CurrentUser, request: Request):
     """Soft delete: il tombstone serve agli altri dispositivi per propagare la
     cancellazione. Lo spazio lo recupera il GC."""
     item = _owned(db, user, item_id)
-    item.deleted_at = utcnow()
+    now = utcnow()
+    item.deleted_at = now
     item.ciphertext = b""       # il ciphertext non serve piu' a nessuno
     item.wrapped_key = b""
     item.seq = next_seq(user)
-    audit(db, request, "vault.item.delete", user.id)
+
+    # Gli allegati seguono l'item. Senza questo restavano attivi per sempre:
+    # invisibili nell'interfaccia (che li mostra solo dentro il loro item),
+    # non cancellabili, e con la quota occupata a vita.
+    orfani = 0
+    for f in db.scalars(
+        select(FileObject).where(
+            FileObject.item_id == item.id,
+            FileObject.user_id == user.id,
+            FileObject.status.in_(("active", "pending")),
+        )
+    ):
+        if f.status == "active":
+            user.storage_used_bytes = max(0, user.storage_used_bytes - f.size_bytes)
+        f.status = "deleted"
+        f.deleted_at = now
+        f.inline_data = None
+        f.seq = next_seq(user)
+        orfani += 1
+
+    audit(db, request, "vault.item.delete", user.id, f"allegati rimossi: {orfani}")
     db.commit()

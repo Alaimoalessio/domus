@@ -1,5 +1,6 @@
 """Test end-to-end. Verificano soprattutto UNA cosa: che il server non possa
 leggere nulla. Il resto e' contorno."""
+import base64
 import json
 import os
 import tempfile
@@ -483,3 +484,87 @@ def test_rotazione_del_kit_invalida_il_foglio_vecchio(clients, app_ctx):
     c = VaultClient(http)
     c.recupera("ivan@family.local", nuovo, "password-nuova-di-ivan-2026")
     assert c.sk == utente.sk
+
+
+# ====================================================== regressioni dell'audit
+
+def test_auth_key_indipendente_dalla_codifica(clients, app_ctx):
+    """L'auth_key viaggia come stringa e viene hashata come stringa: se la
+    codifica conta, un client che emette padding (Python) crea account che un
+    client che non lo emette (JavaScript) non riesce ad aprire. E' successo."""
+    http, _ = app_ctx
+    alice, _ = clients
+    from tests.client import DEFAULT_KDF, b64, derive_master_key, subkey, unb64
+
+    utente = nuovo_utente(http, alice, "luca@family.local", "password-di-luca-2026")
+    params = http.post("/api/v1/auth/prelogin", json={"email": "luca@family.local"}).json()
+    mk = derive_master_key("password-di-luca-2026", unb64(params["kdf_salt"]), params)
+    raw = subkey(mk, "pv1:auth")
+
+    con_padding = b64(raw)                                    # come Python
+    senza_padding = con_padding.rstrip("=")                   # come JavaScript
+    alfabeto_standard = base64.b64encode(raw).decode()        # alfabeto +/
+    assert con_padding != senza_padding
+
+    for etichetta, chiave in [
+        ("con padding", con_padding),
+        ("senza padding", senza_padding),
+        ("alfabeto standard", alfabeto_standard),
+        ("standard senza padding", alfabeto_standard.rstrip("=")),
+    ]:
+        r = http.post(
+            "/api/v1/auth/login",
+            json={"email": "luca@family.local", "auth_key": chiave, "device_label": etichetta},
+        )
+        assert r.status_code == 200, f"login rifiutato con auth_key {etichetta}"
+
+    assert utente.sk is not None
+
+
+def test_cancellare_item_rimuove_gli_allegati(clients, app_ctx):
+    """Gli allegati restavano attivi dopo la cancellazione dell'item: invisibili
+    nell'interfaccia, non cancellabili e con la quota occupata a vita."""
+    http, _ = app_ctx
+    alice, _ = clients
+
+    item = alice.create_item("login", {"password": "con allegato"})
+    meta = alice.upload(b"K" * 90_000, "documento.pdf", "application/pdf", item_id=item["id"])
+    prima = http.get("/api/v1/auth/me", headers=alice.auth_headers).json()["storage_used_bytes"]
+    assert prima >= 90_000
+
+    http.delete(f"/api/v1/vault/items/{item['id']}", headers=alice.auth_headers)
+
+    dopo = http.get("/api/v1/auth/me", headers=alice.auth_headers).json()["storage_used_bytes"]
+    assert dopo == prima - meta["size_bytes"], "la quota non e' stata liberata"
+    assert http.get(f"/api/v1/files/{meta['id']}/content", headers=alice.auth_headers).status_code == 404
+    elenco = http.get("/api/v1/files", headers=alice.auth_headers).json()
+    assert all(f["id"] != meta["id"] for f in elenco)
+
+
+def test_utenti_bloccati_non_occupano_posti(clients, app_ctx):
+    """Rifiutare un familiare non deve consumare per sempre uno dei quattro slot."""
+    http, _ = app_ctx
+    alice, _ = clients
+    from app.core.config import settings
+    from tests.client import VaultClient
+
+    scartato = VaultClient(http)
+    reg = scartato.register("temporaneo@family.local", "password-temporanea-2026")
+    http.post(f"/api/v1/admin/users/{reg['id']}/block", headers=alice.auth_headers)
+
+    attivi = len([
+        u for u in http.get("/api/v1/admin/users", headers=alice.auth_headers).json()
+        if u["status"] != "blocked"
+    ])
+    originale = settings.max_users
+    settings.max_users = attivi          # posti esauriti dai soli non bloccati
+    try:
+        c = VaultClient(http)
+        with pytest.raises(Exception):
+            c.register("oltre@family.local", "password-oltre-2026")
+
+        settings.max_users = attivi + 1  # un posto libero: il bloccato non conta
+        d = VaultClient(http)
+        assert d.register("entra@family.local", "password-entra-2026")["status"] == "pending"
+    finally:
+        settings.max_users = originale

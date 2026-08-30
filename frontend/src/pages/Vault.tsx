@@ -1,4 +1,4 @@
-import { Loader2, LogOut, Plus, Search, Settings, ShieldCheck, Trash2, Users } from "lucide-react";
+import { Loader2, LogOut, Plus, Printer, Search, Settings, ShieldCheck, Trash2, TriangleAlert, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -15,6 +15,8 @@ export default function Vault() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [unreadable, setUnreadable] = useState<string[]>([]);
+  const [needsKit, setNeedsKit] = useState(false);
   const [editing, setEditing] = useState<DecryptedItem | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -24,7 +26,11 @@ export default function Vault() {
       const state = await loadVault(session);
       setItems(state.items);
       setFiles(state.files);
+      setUnreadable(state.unreadable);
       setError("");
+      // Chi viene approvato dopo la registrazione non passa mai dalla schermata
+      // del kit: senza questo avviso resterebbe senza, e non lo saprebbe.
+      setNeedsKit(!(await api.me()).recovery_configured);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sincronizzazione non riuscita");
     } finally {
@@ -114,9 +120,33 @@ export default function Vault() {
           </Button>
         </div>
 
+        {needsKit && !loading && (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3">
+            <TriangleAlert className="h-4 w-4 shrink-0 text-amber-400" />
+            <span className="flex-1 text-sm text-amber-200/90">
+              Non hai un kit di emergenza: se dimentichi la Master Password, questo vault e'
+              perso per sempre.
+            </span>
+            <Link
+              to="/settings"
+              className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 px-3 py-1.5 text-sm font-medium text-amber-200 transition hover:bg-amber-500/10"
+            >
+              <Printer className="h-3.5 w-3.5" /> Crea il kit
+            </Link>
+          </div>
+        )}
+
         {error && (
           <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             {error}
+          </div>
+        )}
+
+        {unreadable.length > 0 && (
+          <div className="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-sm text-amber-200/90">
+            {unreadable.length}{" "}
+            {unreadable.length === 1 ? "voce non decifrabile" : "voci non decifrabili"} con questa
+            chiave. Le altre sono integre e utilizzabili.
           </div>
         )}
 
@@ -126,7 +156,11 @@ export default function Vault() {
           </div>
         ) : visible.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-neutral-800 py-20 text-center text-neutral-500">
-            {items.length === 0 ? "Il vault e' vuoto." : "Nessun risultato."}
+            {error
+              ? "Impossibile caricare il vault."
+              : items.length === 0
+                ? "Il vault e' vuoto."
+                : "Nessun risultato."}
           </div>
         ) : (
           <div className="space-y-2">

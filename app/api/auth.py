@@ -59,13 +59,17 @@ def register(payload: RegisterRequest, db: DB, request: Request):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "registrazioni chiuse")
 
     email = payload.email.lower()
-    count = db.scalar(select(func.count()).select_from(User)) or 0
+    # I bloccati non occupano un posto: altrimenti rifiutare un familiare
+    # consumerebbe per sempre uno dei quattro slot.
+    count = db.scalar(
+        select(func.count()).select_from(User).where(User.status != "blocked")
+    ) or 0
     if count >= settings.max_users:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "numero massimo di utenti raggiunto")
     if db.scalar(select(User.id).where(User.email == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "email gia' registrata")
 
-    first = count == 0
+    first = (db.scalar(select(func.count()).select_from(User)) or 0) == 0
     user = User(
         email=email,
         # payload.auth_key entra qui e viene scartato: mai loggato, mai in un errore.
