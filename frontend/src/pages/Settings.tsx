@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { ImportPanel } from "../components/ImportPanel";
 import { RecoveryKit } from "../components/RecoveryKit";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
@@ -83,6 +84,13 @@ export default function Settings() {
           email={email ?? ""}
           onDone={() => signOut("Password aggiornata, effettua di nuovo l'accesso.")}
         />
+
+        <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-100">
+            Importa da un altro gestore
+          </h2>
+          <ImportPanel session={session} onDone={refresh} />
+        </section>
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
           <h2 className="text-lg font-semibold text-neutral-100">Kit di emergenza</h2>

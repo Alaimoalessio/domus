@@ -30,7 +30,9 @@ Tailscale) o dal `Caddyfile` nella radice del repo.
 | `src/context/AuthContext.tsx` | SK in RAM, auto-lock a 10 minuti |
 | `src/lib/crypto/totp.ts` | TOTP (RFC 6238) su WebCrypto, senza dipendenze |
 | `src/pages/Admin.tsx` | pannello amministrazione, solo per l'utente #1 |
-| `src/pages/Settings.tsx` | profilo, cambio Master Password, gestione del kit |
+| `src/pages/Settings.tsx` | profilo, cambio Master Password, kit, import |
+| `src/lib/generator.ts` | generatore di password e passphrase |
+| `src/lib/import.ts` | parser CSV e riconoscimento del formato |
 
 `tests/client.py` nel backend e' la specifica eseguibile del protocollo, coperta
 da 24 test: quando i due divergono, la ragione ce l'ha Python.
@@ -62,6 +64,40 @@ accetta sia il secret nudo sia l'URI `otpauth://` completo del QR code.
 trentina di righe, senza `otplib`: quello richiederebbe polyfill di `Buffer`
 nel browser, e in un'app dove ogni dipendenza vede i segreti in chiaro una in
 meno conta. Verificato contro i sei vettori di test della RFC.
+
+## Generatore
+
+Password casuali o passphrase di parole italiane. La selezione usa
+campionamento a rifiuto su 32 bit: `random % n` introdurrebbe un bias verso i
+primi elementi quando n non divide lo spazio, e su un generatore di password
+quel bias e' entropia reale in meno di quella dichiarata. Verificato con un
+test del chi quadro su 20.000 estrazioni.
+
+L'entropia mostrata e' quella dello **schema** di generazione, non una stima
+euristica sulla stringa prodotta: lo schema lo conosciamo, quindi il numero e'
+esatto. Le passphrase sono in italiano perche' servono proprio quando la
+password va digitata a mano — sul telecomando della TV, su una console.
+
+## Sincronizzazione
+
+`syncVault(session, precedente)` chiede al server solo cio' che e' cambiato
+dopo il cursore `seq`, applica i tombstone e ridecifra il solo delta. Passare
+`null` forza il caricamento completo.
+
+Il refresh scatta al ritorno sulla scheda (`visibilitychange`) e al ritorno
+sulla finestra (`focus`), non con un polling: tenere sveglio il telefono per
+controllare un vault che cambia due volte a settimana non ha senso.
+
+## Import
+
+Da Chrome, Bitwarden, 1Password o CSV generico, tutto lato client. Il
+riconoscimento e' per intestazione e non per posizione, perche' le colonne
+cambiano ordine fra versioni dello stesso gestore. Il parser e' conforme a
+RFC 4180: uno `split(",")` romperebbe ogni nota multiriga e ogni password che
+contiene una virgola.
+
+Quando manca il titolo si ripiega sul dominio dell'URL: scartare una password
+perche' il nome e' vuoto e' il modo peggiore di perdere dati in una migrazione.
 
 ## Cambio Master Password
 

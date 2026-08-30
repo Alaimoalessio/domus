@@ -1,45 +1,72 @@
 import { Loader2, LogOut, Plus, Printer, Search, Settings, ShieldCheck, Trash2, TriangleAlert, Users } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ItemModal } from "../components/ItemModal";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
-import { api, type FileOut } from "../lib/api";
-import { deleteItem, loadVault, type DecryptedItem } from "../lib/vault";
+import { api } from "../lib/api";
+import { deleteItem, syncVault, VAULT_VUOTO, type DecryptedItem, type VaultState } from "../lib/vault";
 
 export default function Vault() {
   const { session, signOut } = useAuth();
-  const [items, setItems] = useState<DecryptedItem[]>([]);
-  const [files, setFiles] = useState<FileOut[]>([]);
+  const [stato, setStato] = useState<VaultState>(VAULT_VUOTO);
+  const items = stato.items;
+  const files = stato.files;
+  const unreadable = stato.unreadable;
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [unreadable, setUnreadable] = useState<string[]>([]);
   const [needsKit, setNeedsKit] = useState(false);
+  // Il cursore deve restare stabile fra un refresh e l'altro senza rigenerare
+  // la callback, altrimenti l'effetto si riattacca a ogni sincronizzazione.
+  const statoRef = useRef<VaultState>(VAULT_VUOTO);
   const [editing, setEditing] = useState<DecryptedItem | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  const refresh = useCallback(async () => {
-    if (!session) return;
-    try {
-      const state = await loadVault(session);
-      setItems(state.items);
-      setFiles(state.files);
-      setUnreadable(state.unreadable);
-      setError("");
-      // Chi viene approvato dopo la registrazione non passa mai dalla schermata
-      // del kit: senza questo avviso resterebbe senza, e non lo saprebbe.
-      setNeedsKit(!(await api.me()).recovery_configured);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sincronizzazione non riuscita");
-    } finally {
-      setLoading(false);
-    }
-  }, [session]);
+  /** `completo` forza il ricaricamento da zero; altrimenti chiede solo il delta. */
+  const refresh = useCallback(
+    async (completo = false) => {
+      if (!session) return;
+      try {
+        const aggiornato = await syncVault(session, completo ? null : statoRef.current);
+        statoRef.current = aggiornato;
+        setStato(aggiornato);
+        setError("");
+        // Chi viene approvato dopo la registrazione non passa mai dalla
+        // schermata del kit: senza questo avviso resterebbe senza, e non lo
+        // saprebbe.
+        setNeedsKit(!(await api.me()).recovery_configured);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Sincronizzazione non riuscita");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [session]
+  );
 
   useEffect(() => {
-    void refresh();
+    void refresh(true);
+  }, [refresh]);
+
+  // Le modifiche fatte su un altro dispositivo arrivano quando la scheda torna
+  // in primo piano: un polling continuo terrebbe sveglio il telefono per nulla.
+  useEffect(() => {
+    // Due segnali distinti: il ritorno alla scheda, e il ritorno alla finestra
+    // dopo essere passati a un'altra applicazione. Legare anche il secondo a
+    // visibilityState lo renderebbe codice morto, perche' quando la finestra
+    // riceve il focus la scheda e' gia' visibile.
+    const suFocus = () => void refresh();
+    const suVisibilita = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", suVisibilita);
+    window.addEventListener("focus", suFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", suVisibilita);
+      window.removeEventListener("focus", suFocus);
+    };
   }, [refresh]);
 
   if (!session) return null;

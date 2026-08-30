@@ -15,8 +15,11 @@ export default defineConfig({
       // Il backend gira in chiaro su 8000; in produzione ci si arriva via
       // HTTPS (scripts/serve-tls.sh). Il proxy tiene tutto su una sola
       // origine, quindi niente CORS e niente preflight in sviluppo.
+      // VAULT_API permette di puntare il frontend a un backend diverso da
+      // quello di default: utile per provare su un'istanza di prova senza
+      // toccare il vault reale.
       "/api": {
-        target: "http://127.0.0.1:8000",
+        target: process.env.VAULT_API ?? "http://127.0.0.1:8000",
         changeOrigin: true,
       },
     },

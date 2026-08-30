@@ -1,9 +1,10 @@
-import { Check, Copy, Download, Eye, EyeOff, Loader2, Paperclip, X } from "lucide-react";
+import { Check, Copy, Download, Eye, EyeOff, Loader2, Paperclip, Wand2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { FileOut } from "../lib/api";
 import type { DecryptedItem, ItemPayload, Session } from "../lib/vault";
 import { createItem, downloadFile, updateItem, uploadFile } from "../lib/vault";
+import { PasswordGenerator } from "./PasswordGenerator";
 import { TotpDisplay } from "./TotpDisplay";
 import { Button } from "./ui/button";
 
@@ -25,6 +26,7 @@ export function ItemModal({
 }) {
   const [draft, setDraft] = useState<ItemPayload>(item?.payload ?? EMPTY);
   const [revealed, setRevealed] = useState(false);
+  const [generatore, setGeneratore] = useState(false);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -135,7 +137,25 @@ export function ItemModal({
               <Button variant="outline" size="icon" onClick={copyPassword}>
                 {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
               </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setGeneratore((v) => !v)}
+                title="Genera una password"
+              >
+                <Wand2 className="h-4 w-4" />
+              </Button>
             </div>
+            {generatore && (
+              <PasswordGenerator
+                onClose={() => setGeneratore(false)}
+                onUse={(v) => {
+                  setDraft((d) => ({ ...d, password: v }));
+                  setRevealed(true);
+                  setGeneratore(false);
+                }}
+              />
+            )}
             <p className="text-xs text-neutral-500">
               La clipboard viene svuotata automaticamente dopo 20 secondi.
             </p>

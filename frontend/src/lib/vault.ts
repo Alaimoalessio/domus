@@ -363,23 +363,62 @@ export async function downloadFile(session: Session, f: FileOut): Promise<{ blob
 
 // ------------------------------------------------------------------- sync
 
-export async function loadVault(session: Session) {
-  const state = await api.sync(0);
+export interface VaultState {
+  /** Cursore: la prossima sincronizzazione chiede solo cio' che e' cambiato dopo. */
+  seq: number;
+  items: DecryptedItem[];
+  files: FileOut[];
+  unreadable: string[];
+}
 
-  // Con Promise.all un solo item illeggibile (ciphertext corrotto, AAD non
-  // combaciante) faceva fallire l'intero caricamento e il vault appariva
-  // vuoto. In un password manager e' il caso peggiore: si perde l'accesso a
-  // tutto per colpa di una riga. Qui si isola il danno.
-  const items: DecryptedItem[] = [];
-  const unreadable: string[] = [];
-  for (const raw of state.items) {
+export const VAULT_VUOTO: VaultState = { seq: 0, items: [], files: [], unreadable: [] };
+
+/**
+ * Sincronizzazione incrementale. Passando lo stato precedente si scarica e si
+ * decifra solo il delta: senza cursore ogni refresh riscaricava e ridecifrava
+ * l'intero vault, e le modifiche fatte da un altro dispositivo non arrivavano
+ * mai perche' nessuno richiedeva l'aggiornamento.
+ *
+ * Passare `null` forza una sincronizzazione completa (primo caricamento).
+ */
+export async function syncVault(
+  session: Session,
+  precedente: VaultState | null = null
+): Promise<VaultState> {
+  const base = precedente ?? VAULT_VUOTO;
+  const delta = await api.sync(base.seq);
+
+  const items = new Map(base.items.map((i) => [i.id, i]));
+  const files = new Map(base.files.map((f) => [f.id, f]));
+  const unreadable = new Set(base.unreadable);
+
+  // Un solo item illeggibile (ciphertext corrotto, AAD non combaciante) non
+  // deve far fallire tutto il caricamento: in un password manager perdere
+  // l'accesso a ogni voce per colpa di una riga e' il caso peggiore.
+  for (const raw of delta.items) {
     try {
-      items.push(await decryptItem(session, raw));
+      items.set(raw.id, await decryptItem(session, raw));
+      unreadable.delete(raw.id);
     } catch {
-      unreadable.push(raw.id);
+      items.delete(raw.id);
+      unreadable.add(raw.id);
     }
   }
-  return { seq: state.seq, items, files: state.files, unreadable };
+  for (const f of delta.files) files.set(f.id, f);
+
+  // I tombstone propagano le cancellazioni fatte sugli altri dispositivi.
+  for (const t of delta.tombstones) {
+    items.delete(t.id);
+    unreadable.delete(t.id);
+  }
+  for (const t of delta.file_tombstones) files.delete(t.id);
+
+  return {
+    seq: delta.seq,
+    items: [...items.values()].sort((a, b) => a.payload.name.localeCompare(b.payload.name, "it")),
+    files: [...files.values()],
+    unreadable: [...unreadable],
+  };
 }
 
 export { utf8 };
