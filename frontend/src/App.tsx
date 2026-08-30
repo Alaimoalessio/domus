@@ -6,6 +6,7 @@ import Admin from "./pages/Admin";
 import Login from "./pages/Login";
 import Recovery from "./pages/Recovery";
 import Register from "./pages/Register";
+import Settings from "./pages/Settings";
 import Vault from "./pages/Vault";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -27,6 +28,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Admin />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <Settings />
               </ProtectedRoute>
             }
           />

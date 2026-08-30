@@ -16,7 +16,12 @@ interface AuthContextType {
   email: string | null;
   isAuthenticated: boolean;
   signIn: (session: Session, email: string) => void;
-  signOut: () => void;
+  /** Il messaggio sopravvive alla disconnessione: passarlo via state della
+   *  rotta non funziona, perche' azzerare la sessione fa scattare prima il
+   *  redirect di ProtectedRoute, che lo state non ce l'ha. */
+  signOut: (notice?: string) => void;
+  notice: string | null;
+  clearNotice: () => void;
   lockedOut: boolean;
   dismissLock: () => void;
 }
@@ -31,10 +36,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [lockedOut, setLockedOut] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const signOut = useCallback(() => {
+  const signOut = useCallback((message?: string) => {
     setSession(null);
     setEmail(null);
+    setNotice(message ?? null);
     api.clear();
   }, []);
 
@@ -42,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(next);
     setEmail(userEmail);
     setLockedOut(false);
+    setNotice(null);
   }, []);
 
   // Auto-lock: dopo 10 minuti di inattivita' la SK sparisce dalla RAM.
@@ -74,10 +82,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: session !== null,
       signIn,
       signOut,
+      notice,
+      clearNotice: () => setNotice(null),
       lockedOut,
       dismissLock: () => setLockedOut(false),
     }),
-    [session, email, signIn, signOut, lockedOut]
+    [session, email, signIn, signOut, notice, lockedOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

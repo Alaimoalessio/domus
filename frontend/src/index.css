@@ -104,3 +104,10 @@
     color: #000 !important;
   }
 }
+
+/* Barra indeterminata per le attese di Argon2id: la durata dipende dalla CPU
+   del dispositivo, quindi una percentuale reale sarebbe inventata. */
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}

@@ -1,4 +1,4 @@
-import { Check, Copy, Download, Eye, EyeOff, Loader2, Paperclip, Trash2, X } from "lucide-react";
+import { Check, Copy, Download, Eye, EyeOff, Loader2, Paperclip, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { FileOut } from "../lib/api";
@@ -244,4 +244,3 @@ function Input({
   );
 }
 
-export { Trash2 };

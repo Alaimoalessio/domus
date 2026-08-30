@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -14,13 +14,14 @@ export default function Login() {
   const [error, setError] = useState("");
 
   const navigate = useNavigate();
-  const { signIn, lockedOut, dismissLock } = useAuth();
+  const { signIn, lockedOut, dismissLock, notice, clearNotice } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError("");
     dismissLock();
+    clearNotice();
     try {
       signIn(await login(email, password), email);
       navigate("/");
@@ -51,6 +52,12 @@ export default function Login() {
         </div>
       }
     >
+      {notice && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          {notice}
+        </div>
+      )}
       {lockedOut && (
         <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
           Vault bloccato per inattivita'. La chiave e' stata cancellata dalla memoria.

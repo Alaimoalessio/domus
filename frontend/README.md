@@ -30,6 +30,7 @@ Tailscale) o dal `Caddyfile` nella radice del repo.
 | `src/context/AuthContext.tsx` | SK in RAM, auto-lock a 10 minuti |
 | `src/lib/crypto/totp.ts` | TOTP (RFC 6238) su WebCrypto, senza dipendenze |
 | `src/pages/Admin.tsx` | pannello amministrazione, solo per l'utente #1 |
+| `src/pages/Settings.tsx` | profilo, cambio Master Password, gestione del kit |
 
 `tests/client.py` nel backend e' la specifica eseguibile del protocollo, coperta
 da 24 test: quando i due divergono, la ragione ce l'ha Python.
@@ -61,6 +62,22 @@ accetta sia il secret nudo sia l'URI `otpauth://` completo del QR code.
 trentina di righe, senza `otplib`: quello richiederebbe polyfill di `Buffer`
 nel browser, e in un'app dove ogni dipendenza vede i segreti in chiaro una in
 meno conta. Verificato contro i sei vettori di test della RFC.
+
+## Cambio Master Password
+
+`/settings`. Richiede la password attuale, ne deriva due chiavi Argon2id (una
+per verificare, una per il nuovo wrapping) e mostra una barra indeterminata per
+i due secondi buoni che ci vogliono: una percentuale reale sarebbe inventata,
+perche' la durata dipende dalla CPU del dispositivo.
+
+Al termine la sessione viene distrutta e si torna al login. **Il kit di
+emergenza resta valido**: il cambio ri-wrappa la stessa SK, e il kit wrappa
+quella SK, non la password. Verificato end-to-end — un kit stampato prima del
+cambio recupera dopo la SK identica, byte per byte.
+
+Il messaggio di successo passa dall'AuthContext, non dallo `state` della rotta:
+azzerare la sessione fa scattare prima il redirect di `ProtectedRoute`, che lo
+`state` non ce l'ha e lo perderebbe.
 
 ## Pannello admin
 

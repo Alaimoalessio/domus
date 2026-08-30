@@ -1,16 +1,15 @@
-import { KeyRound, Loader2, LogOut, Plus, Search, ShieldCheck, Trash2, Users } from "lucide-react";
+import { Loader2, LogOut, Plus, Search, Settings, ShieldCheck, Trash2, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ItemModal } from "../components/ItemModal";
-import { RecoveryKit } from "../components/RecoveryKit";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
 import { api, type FileOut } from "../lib/api";
-import { createRecoveryKit, deleteItem, loadVault, type DecryptedItem } from "../lib/vault";
+import { deleteItem, loadVault, type DecryptedItem } from "../lib/vault";
 
 export default function Vault() {
-  const { session, email, signOut } = useAuth();
+  const { session, signOut } = useAuth();
   const [items, setItems] = useState<DecryptedItem[]>([]);
   const [files, setFiles] = useState<FileOut[]>([]);
   const [query, setQuery] = useState("");
@@ -18,7 +17,6 @@ export default function Vault() {
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<DecryptedItem | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [newKit, setNewKit] = useState("");
 
   const refresh = useCallback(async () => {
     if (!session) return;
@@ -40,17 +38,6 @@ export default function Vault() {
 
   if (!session) return null;
 
-  if (newKit) {
-    return (
-      <RecoveryKit
-        code={newKit}
-        email={email ?? ""}
-        doneLabel="Ho stampato il nuovo codice"
-        onDone={() => setNewKit("")}
-      />
-    );
-  }
-
   const visible = items.filter((i) =>
     [i.payload.name, i.payload.username, i.payload.url]
       .filter(Boolean)
@@ -63,16 +50,6 @@ export default function Vault() {
     if (!window.confirm(`Eliminare "${item.payload.name}"?`)) return;
     await deleteItem(item.id);
     void refresh();
-  };
-
-  const rotateKit = async () => {
-    if (
-      !window.confirm(
-        "Generare un nuovo kit di emergenza? Il codice stampato in precedenza smettera' di funzionare."
-      )
-    )
-      return;
-    setNewKit(await createRecoveryKit(session));
   };
 
   const logout = async () => {
@@ -106,9 +83,13 @@ export default function Vault() {
               <Users className="h-4 w-4" />
             </Link>
           )}
-          <Button variant="ghost" size="icon" onClick={rotateKit} title="Nuovo kit di emergenza">
-            <KeyRound className="h-4 w-4" />
-          </Button>
+          <Link
+            to="/settings"
+            title="Impostazioni"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100"
+          >
+            <Settings className="h-4 w-4" />
+          </Link>
           <Button variant="ghost" size="icon" onClick={logout} title="Esci">
             <LogOut className="h-4 w-4" />
           </Button>
