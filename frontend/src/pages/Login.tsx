@@ -1,109 +1,93 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { deriveKeys } from '../lib/crypto';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
-import { Lock, Loader2 } from 'lucide-react';
+import { Loader2 } from "lucide-react";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+
+import { AuthShell, ErrorNote, Field } from "../components/AuthShell";
+import { Button } from "../components/ui/button";
+import { useAuth } from "../context/AuthContext";
+import { login } from "../lib/vault";
 
 export default function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { signIn, lockedOut, dismissLock } = useAuth();
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-
+    setBusy(true);
+    setError("");
+    dismissLock();
     try {
-      // 1. Derive keys locally using Argon2id (Slow step)
-      const { authKey, masterKey } = await deriveKeys(password, email);
-
-      // 2. Call backend login endpoint (Mocking network request here)
-      // In a real app: await fetch('/api/login', { method: 'POST', body: JSON.stringify({ email, authKey }) })
-      const mockResponse = { ok: true, token: 'mock-jwt-token', userId: 'user-id-123' };
-      
-      if (!mockResponse.ok) {
-        throw new Error('Credenziali non valide');
-      }
-
-      // 3. Store in volatile memory
-      await login(mockResponse.token, mockResponse.userId, masterKey);
-      
-      navigate('/');
-    } catch (err: any) {
-      setError(err.message || 'Errore durante il login');
+      signIn(await login(email, password), email);
+      navigate("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Accesso non riuscito");
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md bg-neutral-900 border-neutral-800 text-neutral-100 shadow-2xl">
-        <CardHeader className="space-y-1 flex flex-col items-center">
-          <div className="w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center mb-2">
-            <Lock className="w-6 h-6 text-white" />
+    <AuthShell
+      title="Bentornato"
+      description="La derivazione della chiave avviene sul tuo dispositivo."
+      footer={
+        <div className="space-y-2">
+          <div>
+            Non hai un account?{" "}
+            <Link to="/register" className="text-indigo-400 hover:text-indigo-300">
+              Registrati
+            </Link>
           </div>
-          <CardTitle className="text-2xl font-bold tracking-tight">Sblocca il Vault</CardTitle>
-          <CardDescription className="text-neutral-400">
-            Inserisci la tua Master Password. L'operazione richiederà qualche secondo.
-          </CardDescription>
-        </CardHeader>
-        <form onSubmit={handleLogin}>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-neutral-300">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="mario@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="bg-neutral-950 border-neutral-800 text-white placeholder:text-neutral-500 focus-visible:ring-indigo-500"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-neutral-300">Master Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="bg-neutral-950 border-neutral-800 text-white placeholder:text-neutral-500 focus-visible:ring-indigo-500"
-              />
-            </div>
-            {error && <p className="text-red-500 text-sm">{error}</p>}
-          </CardContent>
-          <CardFooter className="flex flex-col gap-4">
-            <Button 
-              type="submit" 
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white transition-all duration-200" 
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Decrittazione chiavi in corso...
-                </>
-              ) : (
-                'Sblocca'
-              )}
-            </Button>
-            <div className="text-sm text-center text-neutral-400">
-              Non hai un account? <Link to="/register" className="text-indigo-400 hover:text-indigo-300 transition-colors">Crea Vault</Link>
-            </div>
-          </CardFooter>
-        </form>
-      </Card>
-    </div>
+          <div>
+            <Link to="/recovery" className="text-neutral-500 hover:text-neutral-300">
+              Ho dimenticato la Master Password
+            </Link>
+          </div>
+        </div>
+      }
+    >
+      {lockedOut && (
+        <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+          Vault bloccato per inattivita'. La chiave e' stata cancellata dalla memoria.
+        </div>
+      )}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Field
+          id="email"
+          label="Email"
+          type="email"
+          required
+          autoComplete="username"
+          placeholder="mario@casa.local"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <Field
+          id="password"
+          label="Master Password"
+          type="password"
+          required
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <ErrorNote>{error}</ErrorNote>
+        <Button type="submit" disabled={busy} className="w-full">
+          {busy ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Derivazione della chiave...
+            </>
+          ) : (
+            "Sblocca il Vault"
+          )}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

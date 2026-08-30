@@ -1,90 +1,93 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { importKey } from '../lib/crypto/aes';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+
+import { api } from "../lib/api";
+import type { Session } from "../lib/vault";
 
 interface AuthContextType {
-  token: string | null;
-  masterKey: CryptoKey | null;
-  userId: string | null;
-  login: (token: string, userId: string, rawMasterKey: Uint8Array) => Promise<void>;
-  logout: () => void;
+  session: Session | null;
+  email: string | null;
   isAuthenticated: boolean;
+  signIn: (session: Session, email: string) => void;
+  signOut: () => void;
+  lockedOut: boolean;
+  dismissLock: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const AUTO_LOCK_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+const AUTO_LOCK_TIMEOUT = 10 * 60 * 1000;
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(null);
-  const [masterKey, setMasterKey] = useState<CryptoKey | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  // SK e token vivono SOLO qui, in memoria. Niente localStorage, niente
+  // sessionStorage: un refresh della pagina chiude il vault, ed e' voluto.
+  const [session, setSession] = useState<Session | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
+  const [lockedOut, setLockedOut] = useState(false);
 
-  const logout = useCallback(() => {
-    setToken(null);
-    setMasterKey(null);
-    setUserId(null);
-    // Explicitly clearing just in case
-    sessionStorage.clear();
+  const signOut = useCallback(() => {
+    setSession(null);
+    setEmail(null);
+    api.clear();
   }, []);
 
-  const login = async (newToken: string, newUserId: string, rawMasterKey: Uint8Array) => {
-    const key = await importKey(rawMasterKey);
-    setToken(newToken);
-    setUserId(newUserId);
-    setMasterKey(key);
-  };
+  const signIn = useCallback((next: Session, userEmail: string) => {
+    setSession(next);
+    setEmail(userEmail);
+    setLockedOut(false);
+  }, []);
 
-  // Auto-Lock hook logic built directly into the provider
+  // Auto-lock: dopo 10 minuti di inattivita' la SK sparisce dalla RAM.
   useEffect(() => {
-    if (!token) return;
+    if (!session) return;
 
     let timeoutId: number;
-
     const resetTimer = () => {
       window.clearTimeout(timeoutId);
       timeoutId = window.setTimeout(() => {
-        console.warn('Auto-locking due to inactivity');
-        logout();
+        setLockedOut(true);
+        signOut();
       }, AUTO_LOCK_TIMEOUT);
     };
 
-    // Listen to user activity to reset the timer
-    const events = ['mousemove', 'keydown', 'touchstart', 'click', 'scroll'];
-    events.forEach((event) => {
-      window.addEventListener(event, resetTimer, { passive: true });
-    });
-
-    // Start timer immediately
+    const events = ["mousemove", "keydown", "touchstart", "click", "scroll"] as const;
+    events.forEach((event) => window.addEventListener(event, resetTimer, { passive: true }));
     resetTimer();
 
     return () => {
       window.clearTimeout(timeoutId);
-      events.forEach((event) => {
-        window.removeEventListener(event, resetTimer);
-      });
+      events.forEach((event) => window.removeEventListener(event, resetTimer));
     };
-  }, [token, logout]);
+  }, [session, signOut]);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        token,
-        masterKey,
-        userId,
-        login,
-        logout,
-        isAuthenticated: !!token && !!masterKey,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      session,
+      email,
+      isAuthenticated: session !== null,
+      signIn,
+      signOut,
+      lockedOut,
+      dismissLock: () => setLockedOut(false),
+    }),
+    [session, email, signIn, signOut, lockedOut]
   );
-};
 
-export const useAuth = () => {
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth deve stare dentro AuthProvider");
   }
   return context;
-};
+}

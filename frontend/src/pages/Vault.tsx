@@ -1,146 +1,187 @@
-import React, { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { Button } from '../components/ui/button';
-import { Card, CardContent } from '../components/ui/card';
-import { ScrollArea } from '../components/ui/scroll-area';
-import { Shield, Key, FileText, Star, Trash2, Plus, LogOut, Search } from 'lucide-react';
-import { Input } from '../components/ui/input';
-import ItemModal from '../components/ItemModal';
+import { KeyRound, Loader2, LogOut, Plus, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 
-// Mock data model
-export interface VaultItem {
-  id: string;
-  title: string;
-  category: 'login' | 'document' | 'secure_note';
-  username?: string;
-  isFavorite?: boolean;
-}
-
-const mockItems: VaultItem[] = [
-  { id: '1', title: 'Netflix', category: 'login', username: 'mario@example.com', isFavorite: true },
-  { id: '2', title: 'Banca', category: 'login', username: 'mario.rossi' },
-  { id: '3', title: 'Passaporto', category: 'document' },
-];
+import { ItemModal } from "../components/ItemModal";
+import { RecoveryKit } from "../components/RecoveryKit";
+import { Button } from "../components/ui/button";
+import { useAuth } from "../context/AuthContext";
+import { api, type FileOut } from "../lib/api";
+import { createRecoveryKit, deleteItem, loadVault, type DecryptedItem } from "../lib/vault";
 
 export default function Vault() {
-  const { logout } = useAuth();
-  const [activeCategory, setActiveCategory] = useState<string>('all');
-  const [search, setSearch] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<VaultItem | null>(null);
+  const { session, email, signOut } = useAuth();
+  const [items, setItems] = useState<DecryptedItem[]>([]);
+  const [files, setFiles] = useState<FileOut[]>([]);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState<DecryptedItem | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [newKit, setNewKit] = useState("");
 
-  const filteredItems = mockItems.filter(item => {
-    if (activeCategory === 'favorites' && !item.isFavorite) return false;
-    if (activeCategory === 'logins' && item.category !== 'login') return false;
-    if (activeCategory === 'documents' && item.category !== 'document') return false;
-    
-    if (search && !item.title.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
+  const refresh = useCallback(async () => {
+    if (!session) return;
+    try {
+      const state = await loadVault(session);
+      setItems(state.items);
+      setFiles(state.files);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sincronizzazione non riuscita");
+    } finally {
+      setLoading(false);
+    }
+  }, [session]);
 
-  const handleOpenItem = (item?: VaultItem) => {
-    setSelectedItem(item || null);
-    setIsModalOpen(true);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  if (!session) return null;
+
+  if (newKit) {
+    return (
+      <RecoveryKit
+        code={newKit}
+        email={email ?? ""}
+        doneLabel="Ho stampato il nuovo codice"
+        onDone={() => setNewKit("")}
+      />
+    );
+  }
+
+  const visible = items.filter((i) =>
+    [i.payload.name, i.payload.username, i.payload.url]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+
+  const remove = async (item: DecryptedItem) => {
+    if (!window.confirm(`Eliminare "${item.payload.name}"?`)) return;
+    await deleteItem(item.id);
+    void refresh();
+  };
+
+  const rotateKit = async () => {
+    if (
+      !window.confirm(
+        "Generare un nuovo kit di emergenza? Il codice stampato in precedenza smettera' di funzionare."
+      )
+    )
+      return;
+    setNewKit(await createRecoveryKit(session));
+  };
+
+  const logout = async () => {
+    await api.logout().catch(() => {});
+    signOut();
   };
 
   return (
-    <div className="flex h-screen bg-neutral-950 text-neutral-100 overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-neutral-800 bg-neutral-900/50 flex flex-col">
-        <div className="p-4 flex items-center gap-2 border-b border-neutral-800">
-          <div className="bg-indigo-600 p-1.5 rounded-md">
-            <Shield className="w-5 h-5 text-white" />
+    <div className="min-h-screen bg-neutral-950">
+      <header className="sticky top-0 z-10 border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-4xl items-center gap-4 px-4 py-4">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-indigo-400" />
+            <span className="font-semibold text-neutral-100">Vault</span>
           </div>
-          <span className="font-bold text-lg tracking-tight">FamilyVault</span>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto py-4">
-          <nav className="space-y-1 px-2">
-            <SidebarItem icon={<Shield />} label="Tutti gli elementi" active={activeCategory === 'all'} onClick={() => setActiveCategory('all')} />
-            <SidebarItem icon={<Star />} label="Preferiti" active={activeCategory === 'favorites'} onClick={() => setActiveCategory('favorites')} />
-            
-            <div className="pt-4 pb-2 px-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Categorie</div>
-            <SidebarItem icon={<Key />} label="Login" active={activeCategory === 'logins'} onClick={() => setActiveCategory('logins')} />
-            <SidebarItem icon={<FileText />} label="Documenti" active={activeCategory === 'documents'} onClick={() => setActiveCategory('documents')} />
-          </nav>
-        </div>
-
-        <div className="p-4 border-t border-neutral-800">
-          <Button variant="ghost" className="w-full justify-start text-neutral-400 hover:text-white hover:bg-neutral-800" onClick={logout}>
-            <LogOut className="w-4 h-4 mr-2" /> Blocca
-          </Button>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 border-b border-neutral-800 bg-neutral-900/30 flex items-center justify-between px-6">
-          <div className="relative w-96">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-            <Input 
-              placeholder="Cerca nel vault..." 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 bg-neutral-900 border-neutral-800 text-neutral-100 focus-visible:ring-indigo-500 rounded-full" 
+          <div className="relative ml-auto max-w-xs flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-600" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Cerca..."
+              className="h-9 w-full rounded-lg border border-neutral-800 bg-neutral-900 pl-9 pr-3 text-sm text-neutral-100 outline-none focus:border-indigo-500"
             />
           </div>
-          <Button onClick={() => handleOpenItem()} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-full px-6">
-            <Plus className="w-4 h-4 mr-2" /> Nuovo
+          <Button variant="ghost" size="icon" onClick={rotateKit} title="Nuovo kit di emergenza">
+            <KeyRound className="h-4 w-4" />
           </Button>
-        </header>
-        
-        <ScrollArea className="flex-1 p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredItems.map(item => (
-              <Card 
-                key={item.id} 
-                className="bg-neutral-900/80 border-neutral-800 hover:border-indigo-500/50 hover:bg-neutral-800 transition-all cursor-pointer group"
-                onClick={() => handleOpenItem(item)}
+          <Button variant="ghost" size="icon" onClick={logout} title="Esci">
+            <LogOut className="h-4 w-4" />
+          </Button>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-4xl px-4 py-8">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-neutral-100">Le tue credenziali</h1>
+            <p className="text-sm text-neutral-500">
+              {items.length} voci · decifrate solo su questo dispositivo
+            </p>
+          </div>
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setModalOpen(true);
+            }}
+          >
+            <Plus className="mr-1 h-4 w-4" /> Nuova voce
+          </Button>
+        </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center py-20 text-neutral-500">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Decifratura del vault...
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-neutral-800 py-20 text-center text-neutral-500">
+            {items.length === 0 ? "Il vault e' vuoto." : "Nessun risultato."}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {visible.map((item) => (
+              <div
+                key={item.id}
+                className="group flex items-center gap-4 rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 transition hover:border-neutral-700"
               >
-                <CardContent className="p-5 flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-neutral-800 flex items-center justify-center shrink-0 group-hover:bg-indigo-600/20 group-hover:text-indigo-400 transition-colors">
-                    {item.category === 'login' ? <Key className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600/15 text-sm font-semibold uppercase text-indigo-400">
+                  {item.payload.name.slice(0, 2)}
+                </div>
+                <button
+                  onClick={() => {
+                    setEditing(item);
+                    setModalOpen(true);
+                  }}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <div className="truncate font-medium text-neutral-100">{item.payload.name}</div>
+                  <div className="truncate text-sm text-neutral-500">
+                    {item.payload.username || item.payload.url || "—"}
                   </div>
-                  <div className="overflow-hidden">
-                    <h3 className="font-semibold text-neutral-200 truncate">{item.title}</h3>
-                    {item.username && <p className="text-sm text-neutral-500 truncate">{item.username}</p>}
-                  </div>
-                </CardContent>
-              </Card>
+                </button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => remove(item)}
+                  className="opacity-0 transition group-hover:opacity-100"
+                >
+                  <Trash2 className="h-4 w-4 text-neutral-500" />
+                </Button>
+              </div>
             ))}
           </div>
-          {filteredItems.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-[50vh] text-neutral-500">
-              <Shield className="w-16 h-16 mb-4 opacity-20" />
-              <p>Nessun elemento trovato</p>
-            </div>
-          )}
-        </ScrollArea>
+        )}
       </main>
 
-      {isModalOpen && (
-        <ItemModal 
-          isOpen={isModalOpen} 
-          onClose={() => setIsModalOpen(false)} 
-          item={selectedItem} 
+      {modalOpen && (
+        <ItemModal
+          session={session}
+          item={editing}
+          attachments={files.filter((f) => f.item_id === editing?.id)}
+          onClose={() => setModalOpen(false)}
+          onSaved={refresh}
         />
       )}
     </div>
-  );
-}
-
-function SidebarItem({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
-        active 
-          ? 'bg-indigo-600/10 text-indigo-400' 
-          : 'text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'
-      }`}
-    >
-      {React.cloneElement(icon as React.ReactElement, { className: 'w-4 h-4' })}
-      {label}
-    </button>
   );
 }

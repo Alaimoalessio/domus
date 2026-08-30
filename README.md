@@ -264,7 +264,19 @@ Ricordati di allineare `VAULT_CORS_ORIGINS` all'origine **https** del frontend.
 chmod 700 data/            # data/jwt.key e vault.db sono gia' 0600
 ```
 
-## 10. Test
+## 10. Frontend
+
+Client React in `frontend/`, zero-knowledge: vedi `frontend/README.md`.
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+Il protocollo e' definito da `tests/client.py`, che il frontend traduce in
+TypeScript in `src/lib/vault.ts`. Quando i due divergono, la ragione ce l'ha
+Python: e' quello coperto dai test.
+
+## 11. Test
 
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
@@ -278,7 +290,7 @@ su disco, `test_il_codice_di_recupero_non_raggiunge_il_server` cerca il codice
 di carta dentro la riga utente, `test_isolamento_dei_vault` e
 `test_admin_non_vede_i_dati_altrui` verificano l'isolamento.
 
-## 11. Schema del database
+## 12. Schema del database
 
 Non c'e' Alembic: `create_all()` crea le tabelle mancanti all'avvio, ma **non
 aggiunge colonne** a tabelle gia' esistenti. Finche' `data/` e' vuoto non e' un

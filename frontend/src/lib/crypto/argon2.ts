@@ -1,45 +1,63 @@
-import { argon2id } from 'hash-wasm';
+import { argon2id } from "hash-wasm";
 
-export interface DerivedKeys {
-  authKey: string; // Base64 URL-safe for login
-  masterKey: Uint8Array; // Raw bytes for AES-GCM
+import { type Bytes, bufferToBase64Url, utf8 } from "./base64";
+
+/**
+ * Argon2id + HKDF-SHA256, lato client. WebCrypto non implementa Argon2:
+ * serve WASM (hash-wasm). HKDF invece e' nativo.
+ */
+
+export interface KdfParams {
+  kdf_memory_kib: number;
+  kdf_iterations: number;
+  kdf_parallelism: number;
+}
+
+export const DEFAULT_KDF: KdfParams = {
+  kdf_memory_kib: 65536, // 64 MiB
+  kdf_iterations: 3,
+  kdf_parallelism: 4,
+};
+
+/**
+ * Deriva la master key. Il salt arriva SEMPRE dal server (/auth/prelogin):
+ * e' casuale e per-utente, e cambia a ogni cambio password o recupero.
+ * Derivarlo dall'email lo renderebbe prevedibile e romperebbe entrambi i flussi.
+ */
+export async function deriveMasterKey(
+  password: string,
+  salt: Bytes,
+  params: KdfParams
+): Promise<Bytes> {
+  return (await argon2id({
+    password,
+    salt,
+    parallelism: params.kdf_parallelism,
+    iterations: params.kdf_iterations,
+    memorySize: params.kdf_memory_kib,
+    hashLength: 32,
+    outputType: "binary",
+  })) as Bytes;
 }
 
 /**
- * Derives the auth_key and master_key from a master password and email (salt).
- * Uses Argon2id via hash-wasm for performance.
+ * Separazione di dominio: auth_key non rivela nulla sulla KEK e viceversa.
+ * salt vuoto = salt di zeri, come `HKDF(salt=None)` in Python (HMAC riempie di
+ * zeri fino alla dimensione del blocco in entrambi i casi).
  */
-export async function deriveKeys(password: string, email: string): Promise<DerivedKeys> {
-  // According to standard practice, we use the email as a deterministic salt for key derivation
-  const salt = new TextEncoder().encode(email.toLowerCase());
-
-  // We request a large hash (e.g., 64 bytes) and split it into two 32-byte keys
-  // First 32 bytes for authentication (auth_key), next 32 bytes for encryption (master_key)
-  const hashLength = 64; 
-  
-  const hash = await argon2id({
-    password,
-    salt,
-    parallelism: 1,
-    iterations: 3,
-    memorySize: 65536, // 64 MB
-    hashLength,
-    outputType: 'binary',
-  });
-
-  const hashBytes = hash as Uint8Array;
-  
-  const authKeyBytes = hashBytes.slice(0, 32);
-  const masterKeyBytes = hashBytes.slice(32, 64);
-
-  // Convert authKey to base64 URL-safe to match backend expectations (if required)
-  // Or just return raw depending on API contract. We'll return it as hex or base64.
-  // Assuming the backend auth expects the auth_key as a base64url string.
-  return {
-    authKey: bufferToBase64Url(authKeyBytes),
-    masterKey: masterKeyBytes,
-  };
+export async function subkey(masterKey: Bytes, info: string): Promise<Bytes> {
+  const base = await window.crypto.subtle.importKey("raw", masterKey, "HKDF", false, [
+    "deriveBits",
+  ]);
+  const bits = await window.crypto.subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: utf8.encode(info) },
+    base,
+    256
+  );
+  return new Uint8Array(bits) as Bytes;
 }
 
-// We need to import bufferToBase64Url
-import { bufferToBase64Url } from './base64';
+/** La sottochiave che viaggia verso il server, in chiaro solo rispetto a lui. */
+export async function authKeyFrom(masterKey: Bytes): Promise<string> {
+  return bufferToBase64Url(await subkey(masterKey, "pv1:auth"));
+}
