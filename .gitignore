@@ -18,3 +18,6 @@ __pycache__/
 
 # artefatti build TypeScript
 *.tsbuildinfo
+
+# ambiente demo con dati finti
+/data-demo/
