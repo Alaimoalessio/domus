@@ -422,8 +422,7 @@ def test_token_di_recupero_non_apre_il_vault(clients, app_ctx):
     """Lo scope deve reggere: un token 'recovery' non e' una sessione."""
     http, _ = app_ctx
     alice, _ = clients
-    from tests.client import (DEFAULT_KDF, VaultClient, b64, derive_master_key,
-                              normalizza_codice, subkey, unb64)
+    from tests.client import derive_master_key, subkey
 
     utente = nuovo_utente(http, alice, "gaia@family.local", "password-di-gaia-2026")
     codice = utente.crea_kit_recupero()
