@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+*.db
+*.db-journal
+# journal_mode=WAL produce anche questi due, accanto a vault.db
+*.db-wal
+*.db-shm
+*.sqlite3
+.env
+/data/
+.pytest_cache/
+.DS_Store
+# certificati TLS: mai nel repo
+*.pem
+*.key
+*.crt

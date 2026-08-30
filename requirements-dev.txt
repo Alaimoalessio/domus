@@ -1,0 +1,6 @@
+-r requirements.txt
+# solo per i test: implementano il CLIENT di riferimento.
+# Il server non usa mai `cryptography` — non ha nulla da cifrare.
+cryptography>=43.0
+httpx>=0.27
+pytest>=8.3

@@ -1,0 +1,26 @@
+# Alternativa a scripts/serve-tls.sh, se non usi Tailscale.
+#
+# `tls internal` fa emettere il certificato alla CA interna di Caddy. Costo:
+# la CA va installata su OGNI dispositivo (`caddy trust` sul server, poi il
+# root su telefoni e portatili — su iOS serve installare il profilo E abilitare
+# la fiducia piena in Impostazioni > Info > Certificati). Con Tailscale questo
+# passaggio sparisce.
+
+vault.casa.lan {
+    tls internal
+    encode gzip
+
+    # Gli allegati arrivano fino a 100 MB (VAULT_MAX_FILE_BYTES).
+    request_body {
+        max_size 110MB
+    }
+
+    reverse_proxy 127.0.0.1:8000 {
+        flush_interval -1
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        -Server
+    }
+}
