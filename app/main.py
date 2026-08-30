@@ -9,19 +9,19 @@ from app.core.config import settings
 from app.db.base import Base, engine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger("vault")
+log = logging.getLogger("domus")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(engine)
     settings.db_path.chmod(0o600)
-    log.info("vault pronto — data_dir=%s", settings.data_dir)
+    log.info("Domus pronto — data_dir=%s", settings.data_dir)
     yield
 
 
 app = FastAPI(
-    title="Family Vault",
+    title="Domus",
     version="1.0.0",
     description=(
         "Password manager zero-knowledge self-hosted. Il server conserva "

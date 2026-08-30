@@ -1,4 +1,4 @@
-# Frontend — Family Vault
+# Domus — frontend
 
 Client zero-knowledge. Tutta la crittografia avviene qui: il server riceve solo
 ciphertext opaco e non possiede alcuna chiave per leggerlo.
@@ -124,6 +124,48 @@ Il backend non ha un endpoint di "rifiuto": "Rifiuta" chiama `block`, che porta
 l'utente in stato `blocked` e ne revoca le sessioni. E' reversibile con
 "Attiva". Nessun endpoint del pannello restituisce ciphertext o chiavi
 wrappate — l'admin conta e amministra, non legge i vault altrui.
+
+## PWA e modalita' offline
+
+`vite-plugin-pwa` genera manifest e service worker: Domus si installa sul
+telefono come un'applicazione. Il service worker mette in cache **solo il
+guscio** — nessuna risposta di `/api` viene mai memorizzata: i dati del vault
+stanno in IndexedDB, cifrati, e li gestisce l'app. Una cache HTTP del service
+worker conserverebbe ciphertext fuori dal nostro controllo e sopravviverebbe al
+logout.
+
+**Cosa finisce in IndexedDB** (`src/lib/offline.ts`): esattamente cio' che il
+server gia' possiede — ciphertext degli item, chiavi wrappate, la SK wrappata e
+i parametri KDF. Mai la master key, mai la master password.
+
+**Cosa cambia nel modello di minaccia**: chi ruba il dispositivo ottiene il
+materiale per un attacco a forza bruta offline sulla master password, senza
+passare dal rate limiting del server. La difesa e' Argon2id (64 MiB, 3
+iterazioni) piu' la cifratura del disco del telefono. E' il prezzo dell'accesso
+offline, ed e' il motivo per cui la copia si puo' cancellare dalle impostazioni.
+
+**Autenticazione offline**: la fa la crittografia, non il server. Se la master
+password e' sbagliata la KEK non apre la SK wrappata e AES-GCM fallisce la
+verifica del tag.
+
+**Rilevamento del guasto**: un `TypeError` da fetch non basta. Con un proxy
+davanti — Vite in sviluppo, Caddy in produzione — un backend spento non produce
+un errore di rete ma un **502**: la fetch riesce. Per questo `eProblemaDiRete`
+tratta 502/503/504 come "server irraggiungibile". Il 500 resta fuori di
+proposito: li' l'applicazione ha risposto e ha sbagliato, e nasconderlo dietro
+una copia locale mascherebbe un guasto vero. Un 401 non fa mai scattare
+l'offline.
+
+In modalita' offline l'app e' in **sola lettura**: creazione, modifica,
+cancellazione e allegati sono nascosti.
+
+## Export
+
+Genera un file **in chiaro**: e' l'oggetto piu' pericoloso di tutto il sistema.
+La decifratura avviene in RAM, il file non passa dal server, e l'object URL
+viene revocato subito dopo il download. Le colonne del CSV sono compatibili con
+Chrome e Bitwarden, e il giro export -> import e' senza perdite (verificato).
+Gli allegati non sono inclusi.
 
 ## Base64
 

@@ -1,17 +1,19 @@
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, CloudOff, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { AuthShell, ErrorNote, Field } from "../components/AuthShell";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
-import { login } from "../lib/vault";
+import { eProblemaDiRete } from "../lib/offline";
+import { login, loginOffline } from "../lib/vault";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [offline, setOffline] = useState(false);
 
   const navigate = useNavigate();
   const { signIn, lockedOut, dismissLock, notice, clearNotice } = useAuth();
@@ -23,7 +25,18 @@ export default function Login() {
     dismissLock();
     clearNotice();
     try {
-      signIn(await login(email, password), email);
+      let sessione;
+      try {
+        sessione = await login(email, password);
+      } catch (err) {
+        // Solo un guasto di RETE fa ripiegare sulla copia locale. Un 401 no:
+        // le credenziali sono sbagliate, e aprire comunque il vault dalla
+        // cache sarebbe il modo piu' rapido di annullare l'autenticazione.
+        if (!eProblemaDiRete(err)) throw err;
+        setOffline(true);
+        sessione = await loginOffline(email, password);
+      }
+      signIn(sessione, email);
       navigate("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Accesso non riuscito");
@@ -56,6 +69,12 @@ export default function Login() {
         <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
           {notice}
+        </div>
+      )}
+      {offline && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-sm text-sky-200">
+          <CloudOff className="mt-0.5 h-4 w-4 shrink-0" />
+          Server non raggiungibile: sto aprendo la copia locale, in sola lettura.
         </div>
       )}
       {lockedOut && (

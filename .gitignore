@@ -21,3 +21,6 @@ __pycache__/
 
 # ambiente demo con dati finti
 /data-demo/
+
+# build del frontend
+frontend/dist/

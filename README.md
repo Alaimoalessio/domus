@@ -1,4 +1,4 @@
-# Family Vault — backend
+# Domus — backend
 
 Password & secrets manager zero-knowledge, self-hosted. Il server conserva
 ciphertext opaco e non possiede alcuna chiave per leggerlo.
@@ -266,7 +266,8 @@ chmod 700 data/            # data/jwt.key e vault.db sono gia' 0600
 
 ## 10. Frontend
 
-Client React in `frontend/`, zero-knowledge: vedi `frontend/README.md`.
+Client React in `frontend/`, zero-knowledge e installabile come PWA: vedi
+`frontend/README.md`.
 
 ```bash
 cd frontend && npm install && npm run dev

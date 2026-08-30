@@ -1,4 +1,4 @@
-import { Loader2, LogOut, Plus, Printer, Search, Settings, ShieldCheck, Trash2, TriangleAlert, Users } from "lucide-react";
+import { CloudOff, Loader2, LogOut, Plus, Printer, Search, Settings, ShieldCheck, Trash2, TriangleAlert, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -6,7 +6,7 @@ import { ItemModal } from "../components/ItemModal";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
-import { deleteItem, syncVault, VAULT_VUOTO, type DecryptedItem, type VaultState } from "../lib/vault";
+import { caricaOffline, deleteItem, syncVault, VAULT_VUOTO, type DecryptedItem, type VaultState } from "../lib/vault";
 
 export default function Vault() {
   const { session, signOut } = useAuth();
@@ -29,6 +29,14 @@ export default function Vault() {
     async (completo = false) => {
       if (!session) return;
       try {
+        if (session.offline) {
+          const locale = await caricaOffline(session);
+          statoRef.current = locale;
+          setStato(locale);
+          setError("");
+          setLoading(false);
+          return;
+        }
         const aggiornato = await syncVault(session, completo ? null : statoRef.current);
         statoRef.current = aggiornato;
         setStato(aggiornato);
@@ -96,7 +104,7 @@ export default function Vault() {
         <div className="mx-auto flex max-w-4xl items-center gap-4 px-4 py-4">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-indigo-400" />
-            <span className="font-semibold text-neutral-100">Vault</span>
+            <span className="font-semibold text-neutral-100">Domus</span>
           </div>
           <div className="relative ml-auto max-w-xs flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-600" />
@@ -107,7 +115,7 @@ export default function Vault() {
               className="h-9 w-full rounded-lg border border-neutral-800 bg-neutral-900 pl-9 pr-3 text-sm text-neutral-100 outline-none focus:border-indigo-500"
             />
           </div>
-          {session.isAdmin && (
+          {session.isAdmin && !session.offline && (
             <Link
               to="/admin"
               title="Amministrazione"
@@ -137,17 +145,29 @@ export default function Vault() {
               {items.length} voci · decifrate solo su questo dispositivo
             </p>
           </div>
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setModalOpen(true);
-            }}
-          >
-            <Plus className="mr-1 h-4 w-4" /> Nuova voce
-          </Button>
+          {!session.offline && (
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setModalOpen(true);
+              }}
+            >
+              <Plus className="mr-1 h-4 w-4" /> Nuova voce
+            </Button>
+          )}
         </div>
 
-        {needsKit && !loading && (
+        {session.offline && (
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-sky-500/25 bg-sky-500/5 px-4 py-3">
+            <CloudOff className="h-4 w-4 shrink-0 text-sky-400" />
+            <span className="text-sm text-sky-200/90">
+              Copia locale, sola lettura: il server non e' raggiungibile. Le modifiche torneranno
+              possibili appena si ricollega.
+            </span>
+          </div>
+        )}
+
+        {needsKit && !session.offline && !loading && (
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3">
             <TriangleAlert className="h-4 w-4 shrink-0 text-amber-400" />
             <span className="flex-1 text-sm text-amber-200/90">
@@ -211,14 +231,16 @@ export default function Vault() {
                     {item.payload.username || item.payload.url || "—"}
                   </div>
                 </button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => remove(item)}
-                  className="opacity-0 transition group-hover:opacity-100"
-                >
-                  <Trash2 className="h-4 w-4 text-neutral-500" />
-                </Button>
+                {!session.offline && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => remove(item)}
+                    className="opacity-0 transition group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-4 w-4 text-neutral-500" />
+                  </Button>
+                )}
               </div>
             ))}
           </div>
@@ -230,6 +252,7 @@ export default function Vault() {
           session={session}
           item={editing}
           attachments={files.filter((f) => f.item_id === editing?.id)}
+          readOnly={session.offline}
           onClose={() => setModalOpen(false)}
           onSaved={refresh}
         />

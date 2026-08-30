@@ -15,6 +15,7 @@
  */
 
 import { api, type FileOut, type ItemOut, type Tokens } from "./api";
+import { leggiSnapshot, salvaSnapshot, type Snapshot } from "./offline";
 import {
   type Bytes,
   AAD_PSK,
@@ -43,6 +44,8 @@ export interface Session {
   isAdmin: boolean;
   /** Chiave del vault. Solo in RAM, mai in localStorage. */
   sk: Bytes;
+  /** Sessione aperta dalla cache locale, senza server: sola lettura. */
+  offline: boolean;
 }
 
 export interface ItemPayload {
@@ -115,8 +118,83 @@ export async function login(email: string, password: string): Promise<Session> {
   const mk = await deriveMasterKey(password, base64UrlToBuffer(params.kdf_salt), params);
   const tokens = await api.login(email, bufferToBase64Url(await subkey(mk, "pv1:auth")), "web");
   api.setTokens(tokens);
+  const sk = await unwrapSk(mk, tokens);
 
-  return { userId: tokens.user_id, isAdmin: tokens.is_admin, sk: await unwrapSk(mk, tokens) };
+  // Si aggiornano i parametri necessari a rientrare senza server. Il vault
+  // vero e proprio lo salva syncVault, che e' dove passano i dati.
+  await salvaSnapshot({
+    ...((await leggiSnapshot()) ?? { items: [], files: [], seq: 0 }),
+    email,
+    userId: tokens.user_id,
+    isAdmin: tokens.is_admin,
+    kdf: {
+      kdf_salt: params.kdf_salt,
+      kdf_memory_kib: params.kdf_memory_kib,
+      kdf_iterations: params.kdf_iterations,
+      kdf_parallelism: params.kdf_parallelism,
+    },
+    protected_symmetric_key: tokens.protected_symmetric_key,
+    protected_key_nonce: tokens.protected_key_nonce,
+    salvato: new Date().toISOString(),
+  } as Snapshot);
+
+  return { userId: tokens.user_id, isAdmin: tokens.is_admin, sk, offline: false };
+}
+
+/**
+ * Apertura senza server, dallo snapshot in IndexedDB.
+ *
+ * La verifica dell'identita' qui non la fa il server: la fa la crittografia.
+ * Se la master password e' sbagliata, la KEK derivata non apre la SK wrappata
+ * e AES-GCM fallisce la verifica del tag. Non c'e' modo di entrare con una
+ * password errata, ne' di sapere se l'account esiste ancora sul server.
+ */
+export async function loginOffline(email: string, password: string): Promise<Session> {
+  const snap = await leggiSnapshot();
+  if (!snap || snap.email.toLowerCase() !== email.toLowerCase()) {
+    throw new Error("Nessuna copia locale per questo account su questo dispositivo.");
+  }
+
+  const mk = await deriveMasterKey(password, base64UrlToBuffer(snap.kdf.kdf_salt), snap.kdf);
+  let sk: Bytes;
+  try {
+    sk = await open(
+      await subkey(mk, "pv1:kek"),
+      base64UrlToBuffer(snap.protected_key_nonce),
+      base64UrlToBuffer(snap.protected_symmetric_key),
+      AAD_PSK
+    );
+  } catch {
+    throw new Error("Master Password errata.");
+  }
+
+  return { userId: snap.userId, isAdmin: snap.isAdmin, sk, offline: true };
+}
+
+/** Il vault dalla copia locale, decifrato in RAM. */
+export async function caricaOffline(session: Session): Promise<VaultState> {
+  const snap = await leggiSnapshot();
+  if (!snap) return VAULT_VUOTO;
+
+  const items: DecryptedItem[] = [];
+  const unreadable: string[] = [];
+  for (const raw of snap.items) {
+    try {
+      items.push(await decryptItem(session, raw));
+    } catch {
+      unreadable.push(raw.id);
+    }
+  }
+  return {
+    seq: snap.seq,
+    items: items.sort((a, b) => a.payload.name.localeCompare(b.payload.name, "it")),
+    files: snap.files,
+    unreadable,
+  };
+}
+
+export async function dataUltimoSnapshot(): Promise<string | null> {
+  return (await leggiSnapshot())?.salvato ?? null;
 }
 
 export async function changeMasterPassword(
@@ -148,7 +226,7 @@ export async function changeMasterPassword(
     new_protected_key_nonce: bufferToBase64Url(wrapped.nonce),
   });
   api.setTokens(tokens);
-  return { userId: tokens.user_id, isAdmin: tokens.is_admin, sk: session.sk };
+  return { userId: tokens.user_id, isAdmin: tokens.is_admin, sk: session.sk, offline: false };
 }
 
 // -------------------------------------------------------- kit di emergenza
@@ -216,7 +294,7 @@ export async function recover(
     new_protected_key_nonce: bufferToBase64Url(wrapped.nonce),
   });
   api.setTokens(tokens);
-  return { userId: tokens.user_id, isAdmin: tokens.is_admin, sk };
+  return { userId: tokens.user_id, isAdmin: tokens.is_admin, sk, offline: false };
 }
 
 // ------------------------------------------------------------------ items
@@ -413,12 +491,30 @@ export async function syncVault(
   }
   for (const t of delta.file_tombstones) files.delete(t.id);
 
-  return {
+  const stato: VaultState = {
     seq: delta.seq,
     items: [...items.values()].sort((a, b) => a.payload.name.localeCompare(b.payload.name, "it")),
     files: [...files.values()],
     unreadable: [...unreadable],
   };
+
+  // Si conserva il CIPHERTEXT com'e' arrivato, non gli item decifrati: la
+  // cache non deve contenere nulla che il server non abbia gia'.
+  const precedenteSnap = await leggiSnapshot();
+  if (precedenteSnap) {
+    const grezzi = new Map(precedenteSnap.items.map((i) => [i.id, i]));
+    for (const raw of delta.items) grezzi.set(raw.id, raw);
+    for (const t of delta.tombstones) grezzi.delete(t.id);
+    await salvaSnapshot({
+      ...precedenteSnap,
+      items: [...grezzi.values()],
+      files: stato.files,
+      seq: stato.seq,
+      salvato: new Date().toISOString(),
+    });
+  }
+
+  return stato;
 }
 
 export { utf8 };

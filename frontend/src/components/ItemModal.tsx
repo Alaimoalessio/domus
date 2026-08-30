@@ -15,12 +15,15 @@ export function ItemModal({
   session,
   item,
   attachments,
+  readOnly = false,
   onClose,
   onSaved,
 }: {
   session: Session;
   item: DecryptedItem | null;
   attachments: FileOut[];
+  /** Copia locale senza server: si legge e si copia, non si scrive. */
+  readOnly?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -111,7 +114,7 @@ export function ItemModal({
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-4">
           <h2 className="text-lg font-semibold text-neutral-100">
-            {item ? "Modifica voce" : "Nuova voce"}
+            {readOnly ? "Voce (sola lettura)" : item ? "Modifica voce" : "Nuova voce"}
           </h2>
           <button onClick={onClose} className="text-neutral-500 transition hover:text-neutral-200">
             <X className="h-5 w-5" />
@@ -119,8 +122,8 @@ export function ItemModal({
         </div>
 
         <div className="space-y-4 p-6">
-          <Input label="Nome" value={draft.name} onChange={set("name")} placeholder="Banca" />
-          <Input label="Username" value={draft.username ?? ""} onChange={set("username")} />
+          <Input label="Nome" value={draft.name} onChange={set("name")} placeholder="Banca" readOnly={readOnly} />
+          <Input label="Username" value={draft.username ?? ""} onChange={set("username")} readOnly={readOnly} />
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-neutral-300">Password</label>
@@ -129,6 +132,7 @@ export function ItemModal({
                 type={revealed ? "text" : "password"}
                 value={draft.password ?? ""}
                 onChange={set("password")}
+                readOnly={readOnly}
                 className="h-10 flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 font-mono text-sm text-neutral-100 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
               />
               <Button variant="outline" size="icon" onClick={() => setRevealed((v) => !v)}>
@@ -137,14 +141,16 @@ export function ItemModal({
               <Button variant="outline" size="icon" onClick={copyPassword}>
                 {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
               </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setGeneratore((v) => !v)}
-                title="Genera una password"
-              >
-                <Wand2 className="h-4 w-4" />
-              </Button>
+              {!readOnly && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setGeneratore((v) => !v)}
+                  title="Genera una password"
+                >
+                  <Wand2 className="h-4 w-4" />
+                </Button>
+              )}
             </div>
             {generatore && (
               <PasswordGenerator
@@ -161,7 +167,7 @@ export function ItemModal({
             </p>
           </div>
 
-          <Input label="URL" value={draft.url ?? ""} onChange={set("url")} placeholder="https://" />
+          <Input label="URL" value={draft.url ?? ""} onChange={set("url")} placeholder="https://" readOnly={readOnly} />
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-neutral-300">
@@ -170,6 +176,7 @@ export function ItemModal({
             <input
               value={draft.totp ?? ""}
               onChange={set("totp")}
+              readOnly={readOnly}
               spellCheck={false}
               placeholder="JBSWY3DPEHPK3PXP oppure otpauth://..."
               className="h-10 w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 font-mono text-sm text-neutral-100 outline-none transition placeholder:font-sans placeholder:text-neutral-600 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
@@ -189,6 +196,7 @@ export function ItemModal({
               rows={3}
               value={draft.notes ?? ""}
               onChange={set("notes")}
+              readOnly={readOnly}
               className="w-full resize-none rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
             />
           </div>
@@ -197,9 +205,11 @@ export function ItemModal({
             <div className="space-y-2 border-t border-neutral-800 pt-4">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium text-neutral-300">Allegati</label>
-                <Button variant="ghost" size="sm" onClick={() => fileInput.current?.click()}>
-                  <Paperclip className="mr-1 h-3.5 w-3.5" /> Aggiungi
-                </Button>
+                {!readOnly && (
+                  <Button variant="ghost" size="sm" onClick={() => fileInput.current?.click()}>
+                    <Paperclip className="mr-1 h-3.5 w-3.5" /> Aggiungi
+                  </Button>
+                )}
                 <input ref={fileInput} type="file" className="hidden" onChange={attach} />
               </div>
               {attachments.length === 0 ? (
@@ -213,7 +223,13 @@ export function ItemModal({
                     <span className="truncate font-mono text-xs text-neutral-400">
                       {(f.size_bytes / 1024).toFixed(0)} KB
                     </span>
-                    <Button variant="ghost" size="icon-sm" onClick={() => fetchAttachment(f)}>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={readOnly}
+                      title={readOnly ? "Non disponibile senza server" : "Scarica"}
+                      onClick={() => fetchAttachment(f)}
+                    >
                       <Download className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -231,8 +247,9 @@ export function ItemModal({
 
         <div className="flex justify-end gap-3 border-t border-neutral-800 px-6 py-4">
           <Button variant="ghost" onClick={onClose}>
-            Annulla
+            {readOnly ? "Chiudi" : "Annulla"}
           </Button>
+          {!readOnly && (
           <Button onClick={save} disabled={busy !== "" || !draft.name}>
             {busy ? (
               <>
@@ -243,6 +260,7 @@ export function ItemModal({
               "Salva"
             )}
           </Button>
+          )}
         </div>
       </div>
     </div>

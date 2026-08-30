@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   KeyRound,
+  Trash2,
   Loader2,
   Printer,
   ShieldCheck,
@@ -9,21 +10,25 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { ExportPanel } from "../components/ExportPanel";
 import { ImportPanel } from "../components/ImportPanel";
 import { RecoveryKit } from "../components/RecoveryKit";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
 import { api, type MeResponse } from "../lib/api";
-import { changeMasterPassword, createRecoveryKit } from "../lib/vault";
+import { cancellaSnapshot } from "../lib/offline";
+import { changeMasterPassword, createRecoveryKit, dataUltimoSnapshot } from "../lib/vault";
 
 export default function Settings() {
   const { session, email, signOut } = useAuth();
 
   const [me, setMe] = useState<MeResponse | null>(null);
   const [newKit, setNewKit] = useState("");
+  const [snapshot, setSnapshot] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
+      setSnapshot(await dataUltimoSnapshot());
       setMe(await api.me());
     } catch {
       /* la pagina resta usabile anche senza il riepilogo */
@@ -90,6 +95,39 @@ export default function Settings() {
             Importa da un altro gestore
           </h2>
           <ImportPanel session={session} onDone={refresh} />
+        </section>
+
+        <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+          <h2 className="text-lg font-semibold text-neutral-100">Copia offline</h2>
+          <p className="mt-1 text-sm leading-relaxed text-neutral-400">
+            {snapshot
+              ? `Su questo dispositivo c'e' una copia cifrata del vault, aggiornata al ${new Date(
+                  snapshot
+                ).toLocaleString("it-IT")}. Serve ad aprirlo in sola lettura quando il server non risponde.`
+              : "Nessuna copia locale su questo dispositivo."}
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-neutral-600">
+            Contiene solo cio' che il server ha gia': ciphertext e chiavi wrappate, mai la Master
+            Password. Chi ruba il dispositivo puo' pero' tentare un attacco a forza bruta senza
+            passare dal server — la difesa e' Argon2id piu' la cifratura del disco del telefono.
+          </p>
+          {snapshot && (
+            <Button
+              variant="outline"
+              className="mt-4"
+              onClick={async () => {
+                await cancellaSnapshot();
+                setSnapshot(null);
+              }}
+            >
+              <Trash2 className="mr-2 h-4 w-4" /> Elimina la copia da questo dispositivo
+            </Button>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-100">Esporta il vault</h2>
+          <ExportPanel session={session} />
         </section>
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
