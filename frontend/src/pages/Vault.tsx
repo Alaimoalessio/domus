@@ -1,5 +1,6 @@
-import { KeyRound, Loader2, LogOut, Plus, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { KeyRound, Loader2, LogOut, Plus, Search, ShieldCheck, Trash2, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { ItemModal } from "../components/ItemModal";
 import { RecoveryKit } from "../components/RecoveryKit";
@@ -96,6 +97,15 @@ export default function Vault() {
               className="h-9 w-full rounded-lg border border-neutral-800 bg-neutral-900 pl-9 pr-3 text-sm text-neutral-100 outline-none focus:border-indigo-500"
             />
           </div>
+          {session.isAdmin && (
+            <Link
+              to="/admin"
+              title="Amministrazione"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-400 transition hover:bg-neutral-900"
+            >
+              <Users className="h-4 w-4" />
+            </Link>
+          )}
           <Button variant="ghost" size="icon" onClick={rotateKit} title="Nuovo kit di emergenza">
             <KeyRound className="h-4 w-4" />
           </Button>

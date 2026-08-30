@@ -28,6 +28,8 @@ Tailscale) o dal `Caddyfile` nella radice del repo.
 | `src/lib/api.ts` | client HTTP tipizzato. Nessuna logica crittografica: vede solo ciphertext |
 | `src/lib/vault.ts` | lo strato che unisce i due. E' la traduzione di `tests/client.py` |
 | `src/context/AuthContext.tsx` | SK in RAM, auto-lock a 10 minuti |
+| `src/lib/crypto/totp.ts` | TOTP (RFC 6238) su WebCrypto, senza dipendenze |
+| `src/pages/Admin.tsx` | pannello amministrazione, solo per l'utente #1 |
 
 `tests/client.py` nel backend e' la specifica eseguibile del protocollo, coperta
 da 24 test: quando i due divergono, la ragione ce l'ha Python.
@@ -48,6 +50,27 @@ di emergenza, che wrappa la stessa SK sotto il codice stampato.
 gli item, `pv1f|...` e `pv1fm|...` per file e metadati. Senza, un server
 compromesso puo' spostare un ciphertext da un item all'altro e il client
 mostrerebbe la password sbagliata sul dominio sbagliato, senza errori.
+
+## 2FA (TOTP)
+
+Il secret base32 e' un campo del payload dell'item: viene cifrato con la stessa
+chiave e la stessa AAD, il server non lo distingue dalla password. Il campo
+accetta sia il secret nudo sia l'URI `otpauth://` completo del QR code.
+
+`src/lib/crypto/totp.ts` implementa RFC 6238 su WebCrypto (HMAC-SHA1) in una
+trentina di righe, senza `otplib`: quello richiederebbe polyfill di `Buffer`
+nel browser, e in un'app dove ogni dipendenza vede i segreti in chiaro una in
+meno conta. Verificato contro i sei vettori di test della RFC.
+
+## Pannello admin
+
+`/admin`, accessibile solo all'utente #1. Statistiche di sistema, elenco utenti,
+approvazione e blocco dei familiari in attesa.
+
+Il backend non ha un endpoint di "rifiuto": "Rifiuta" chiama `block`, che porta
+l'utente in stato `blocked` e ne revoca le sessioni. E' reversibile con
+"Attiva". Nessun endpoint del pannello restituisce ciphertext o chiavi
+wrappate — l'admin conta e amministra, non legge i vault altrui.
 
 ## Base64
 

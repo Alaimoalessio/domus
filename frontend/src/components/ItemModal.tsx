@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import type { FileOut } from "../lib/api";
 import type { DecryptedItem, ItemPayload, Session } from "../lib/vault";
 import { createItem, downloadFile, updateItem, uploadFile } from "../lib/vault";
+import { TotpDisplay } from "./TotpDisplay";
 import { Button } from "./ui/button";
 
-const EMPTY: ItemPayload = { name: "", username: "", password: "", url: "", notes: "" };
+const EMPTY: ItemPayload = { name: "", username: "", password: "", url: "", notes: "", totp: "" };
 const CLIPBOARD_TTL = 20_000;
 
 export function ItemModal({
@@ -141,6 +142,26 @@ export function ItemModal({
           </div>
 
           <Input label="URL" value={draft.url ?? ""} onChange={set("url")} placeholder="https://" />
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-neutral-300">
+              Secret 2FA <span className="text-neutral-600">(opzionale)</span>
+            </label>
+            <input
+              value={draft.totp ?? ""}
+              onChange={set("totp")}
+              spellCheck={false}
+              placeholder="JBSWY3DPEHPK3PXP oppure otpauth://..."
+              className="h-10 w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 font-mono text-sm text-neutral-100 outline-none transition placeholder:font-sans placeholder:text-neutral-600 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
+            />
+            {draft.totp ? (
+              <TotpDisplay secret={draft.totp} />
+            ) : (
+              <p className="text-xs text-neutral-500">
+                Incolla il secret base32 del sito, o direttamente l'URI otpauth:// del QR code.
+              </p>
+            )}
+          </div>
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-neutral-300">Note</label>

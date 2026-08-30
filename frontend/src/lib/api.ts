@@ -77,6 +77,33 @@ export interface SyncResponse {
   file_tombstones: { id: string; seq: number; deleted_at: string }[];
 }
 
+export interface AdminStats {
+  users_total: number;
+  users_active: number;
+  users_pending: number;
+  users_blocked: number;
+  items_total: number;
+  files_total: number;
+  storage_used_bytes: number;
+  db_size_bytes: number;
+  blobs_size_bytes: number;
+  disk_free_bytes: number;
+  disk_total_bytes: number;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  status: "pending" | "active" | "blocked";
+  is_admin: boolean;
+  created_at: string;
+  last_login_at: string | null;
+  item_count: number;
+  file_count: number;
+  storage_used_bytes: number;
+  storage_quota_bytes: number;
+}
+
 export interface MeResponse {
   id: string;
   email: string;
@@ -302,6 +329,32 @@ export class Api {
 
   deleteFile(id: string) {
     return this.json<void>(`/files/${id}`, { method: "DELETE" });
+  }
+
+  // ---------------------------------------------------------------- admin
+  // Nessuno di questi endpoint restituisce ciphertext o chiavi wrappate:
+  // l'admin conta e amministra, non legge i vault altrui.
+  adminStats() {
+    return this.json<AdminStats>("/admin/stats");
+  }
+
+  adminUsers() {
+    return this.json<AdminUser[]>("/admin/users");
+  }
+
+  adminApprove(userId: string) {
+    return this.json<void>(`/admin/users/${userId}/approve`, { method: "POST" });
+  }
+
+  adminBlock(userId: string) {
+    return this.json<void>(`/admin/users/${userId}/block`, { method: "POST" });
+  }
+
+  adminQuota(userId: string, bytes: number) {
+    return this.json<void>(`/admin/users/${userId}/quota`, {
+      method: "POST",
+      body: JSON.stringify({ storage_quota_bytes: bytes }),
+    });
   }
 }
 

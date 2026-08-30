@@ -51,6 +51,9 @@ export interface ItemPayload {
   password?: string;
   url?: string;
   notes?: string;
+  /** Secret base32 del 2FA. E' dentro il payload, quindi viaggia cifrato
+   *  esattamente come la password: il server non lo distingue dal resto. */
+  totp?: string;
 }
 
 export interface DecryptedItem {
