@@ -33,6 +33,8 @@ Tailscale) o dal `Caddyfile` nella radice del repo.
 | `src/pages/Settings.tsx` | profilo, cambio Master Password, kit, import |
 | `src/lib/generator.ts` | generatore di password e passphrase |
 | `src/lib/import.ts` | parser CSV e riconoscimento del formato |
+| `src/lib/offline.ts` | snapshot cifrato in IndexedDB |
+| `src/lib/biometric.ts` | sblocco biometrico con WebAuthn PRF |
 
 `tests/client.py` nel backend e' la specifica eseguibile del protocollo, coperta
 da 24 test: quando i due divergono, la ragione ce l'ha Python.
@@ -158,6 +160,47 @@ l'offline.
 
 In modalita' offline l'app e' in **sola lettura**: creazione, modifica,
 cancellazione e allegati sono nascosti.
+
+## Sblocco biometrico (WebAuthn PRF)
+
+Il Secure Enclave **non e' raggiungibile da una pagina web**: non esiste
+un'API per cifrare dati arbitrari con l'enclave, e' una capacita' nativa.
+L'estensione PRF di WebAuthn e' l'unico modo, sul web, di ottenere materiale
+crittografico legato al gesto biometrico.
+
+```
+navigator.credentials.get({ extensions: { prf: { eval: { first: salt } } } })
+      |  richiede FaceID / TouchID / impronta
+      v
+   output PRF (32B, rigenerato a ogni sblocco, MAI memorizzato)
+      |  HKDF-SHA256, info "pv1:prf:wrap"
+      v
+     WK ---unwrap---> { SK, refresh token }   cifrati in IndexedDB
+```
+
+**Si wrappa la SK, non la master password.** Wrappare la password darebbe alla
+biometria un segreto piu' forte del necessario e si romperebbe a ogni cambio
+password. La SK e' stabile — la stessa proprieta' che fa sopravvivere il kit di
+emergenza a un cambio password.
+
+**Il refresh token ruota a ogni uso**, quindi quello conservato vale una volta
+sola: dopo ogni sblocco il pacchetto viene riscritto con il token nuovo, usando
+la WK che in quel momento e' gia' in memoria. Senza, il secondo sblocco
+fallirebbe e la reuse detection del server abbatterebbe l'intera famiglia di
+token.
+
+**Se il server non risponde** o la sessione salvata e' scaduta, lo sblocco
+apre comunque la copia locale in sola lettura: la SK e' valida a prescindere.
+
+**Nessun ripiego su PIN** dove il PRF manca. Un PIN a sei cifre e' una ventina
+di bit, e chi ha il dispositivo salterebbe WebAuthn del tutto per forzarlo
+offline: sarebbe un declassamento venduto come funzione di sicurezza. Il
+pulsante semplicemente non compare, con la spiegazione del perche'.
+
+**Uno snapshot per dispositivo.** Se entra un altro familiare, la copia offline
+precedente viene scartata, non accumulata: sia per non lasciare il ciphertext
+di uno sul telefono dell'altro, sia perche' ereditare il cursore `seq` altrui
+farebbe chiedere un `since=` sbagliato e vedere un vault incompleto.
 
 ## Export
 

@@ -142,6 +142,24 @@ export class Api {
     this.refreshToken = null;
   }
 
+  /** Scambia un refresh token per una sessione. Lo usa lo sblocco biometrico,
+   *  che parte da un refresh token conservato e non da un access token. */
+  async rinnovaSessione(refreshToken: string): Promise<Tokens> {
+    const r = await this.raw(
+      "/auth/refresh",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      },
+      false
+    );
+    if (!r.ok) throw await toError(r);
+    const t: Tokens = await r.json();
+    this.setTokens(t);
+    return t;
+  }
+
   private async raw(path: string, init: RequestInit, auth: boolean): Promise<Response> {
     const headers = new Headers(init.headers);
     if (auth && this.accessToken) headers.set("Authorization", `Bearer ${this.accessToken}`);

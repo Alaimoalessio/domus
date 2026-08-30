@@ -1,10 +1,11 @@
-import { CheckCircle2, CloudOff, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle2, CloudOff, Fingerprint, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { AuthShell, ErrorNote, Field } from "../components/AuthShell";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
+import { leggiRecord, sblocca, type RecordBiometrico } from "../lib/biometric";
 import { eProblemaDiRete } from "../lib/offline";
 import { login, loginOffline } from "../lib/vault";
 
@@ -14,6 +15,29 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [offline, setOffline] = useState(false);
+  const [biometria, setBiometria] = useState<RecordBiometrico | null>(null);
+  const [sbloccando, setSbloccando] = useState(false);
+
+  useEffect(() => {
+    void leggiRecord().then(setBiometria);
+  }, []);
+
+  const sbloccaBiometrico = async () => {
+    if (!biometria) return;
+    setSbloccando(true);
+    setError("");
+    setOffline(false);
+    try {
+      const esito = await sblocca();
+      if (!esito.online) setOffline(true);
+      signIn(esito.session, biometria.email);
+      navigate("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sblocco non riuscito");
+    } finally {
+      setSbloccando(false);
+    }
+  };
 
   const navigate = useNavigate();
   const { signIn, lockedOut, dismissLock, notice, clearNotice } = useAuth();
@@ -82,6 +106,28 @@ export default function Login() {
           Vault bloccato per inattivita'. La chiave e' stata cancellata dalla memoria.
         </div>
       )}
+      {biometria && (
+        <div className="mb-6 space-y-3">
+          <Button onClick={sbloccaBiometrico} disabled={sbloccando} className="h-11 w-full">
+            {sbloccando ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Attendo il sensore...
+              </>
+            ) : (
+              <>
+                <Fingerprint className="mr-2 h-5 w-5" /> Sblocca con la biometria
+              </>
+            )}
+          </Button>
+          <div className="text-center text-xs text-neutral-500">{biometria.email}</div>
+          <div className="flex items-center gap-3 pt-1">
+            <div className="h-px flex-1 bg-neutral-800" />
+            <span className="text-xs text-neutral-600">oppure</span>
+            <div className="h-px flex-1 bg-neutral-800" />
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <Field
           id="email"

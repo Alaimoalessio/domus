@@ -122,8 +122,20 @@ export async function login(email: string, password: string): Promise<Session> {
 
   // Si aggiornano i parametri necessari a rientrare senza server. Il vault
   // vero e proprio lo salva syncVault, che e' dove passano i dati.
+  //
+  // Se sul dispositivo c'e' lo snapshot di un ALTRO utente lo si butta: non e'
+  // solo questione di igiene. Ereditandolo si terrebbero le voci cifrate del
+  // familiare precedente sul telefono, e soprattutto si erediterebbe il suo
+  // cursore `seq` — il nuovo utente chiederebbe un `since=` troppo alto e
+  // vedrebbe un vault incompleto senza accorgersene.
+  const precedente = await leggiSnapshot();
+  const base =
+    precedente && precedente.email.toLowerCase() === email.toLowerCase()
+      ? precedente
+      : { items: [], files: [], seq: 0 };
+
   await salvaSnapshot({
-    ...((await leggiSnapshot()) ?? { items: [], files: [], seq: 0 }),
+    ...base,
     email,
     userId: tokens.user_id,
     isAdmin: tokens.is_admin,
@@ -174,7 +186,7 @@ export async function loginOffline(email: string, password: string): Promise<Ses
 /** Il vault dalla copia locale, decifrato in RAM. */
 export async function caricaOffline(session: Session): Promise<VaultState> {
   const snap = await leggiSnapshot();
-  if (!snap) return VAULT_VUOTO;
+  if (!snap || snap.userId !== session.userId) return VAULT_VUOTO;
 
   const items: DecryptedItem[] = [];
   const unreadable: string[] = [];
@@ -501,7 +513,7 @@ export async function syncVault(
   // Si conserva il CIPHERTEXT com'e' arrivato, non gli item decifrati: la
   // cache non deve contenere nulla che il server non abbia gia'.
   const precedenteSnap = await leggiSnapshot();
-  if (precedenteSnap) {
+  if (precedenteSnap && precedenteSnap.userId === session.userId) {
     const grezzi = new Map(precedenteSnap.items.map((i) => [i.id, i]));
     for (const raw of delta.items) grezzi.set(raw.id, raw);
     for (const t of delta.tombstones) grezzi.delete(t.id);
