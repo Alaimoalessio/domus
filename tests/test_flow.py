@@ -627,3 +627,44 @@ def test_cestino_isolato_fra_utenti(clients, app_ctx):
 
     assert all(v["id"] != item["id"] for v in http.get("/api/v1/vault/trash", headers=bob.auth_headers).json())
     assert http.post(f"/api/v1/vault/items/{item['id']}/restore", headers=bob.auth_headers).status_code == 404
+
+
+# ============================================================ dispositivi
+
+def test_elenco_e_revoca_dei_dispositivi(clients, app_ctx):
+    """Vedere le sessioni aperte e chiuderne una a distanza e' il modo con cui
+    ci si accorge di un accesso non proprio."""
+    http, _ = app_ctx
+    alice, _ = clients
+    from tests.client import VaultClient, b64, derive_master_key, subkey, unb64
+
+    params = http.post("/api/v1/auth/prelogin", json={"email": "alice@family.local"}).json()
+    mk = derive_master_key("master-password-di-alice-2026", unb64(params["kdf_salt"]), params)
+    chiave = b64(subkey(mk, "pv1:auth"))
+
+    telefono = http.post(
+        "/api/v1/auth/login",
+        json={"email": "alice@family.local", "auth_key": chiave, "device_label": "Samsung"},
+    ).json()
+    intestazioni_telefono = {"Authorization": f"Bearer {telefono['access_token']}"}
+
+    elenco = http.get("/api/v1/auth/sessions", headers=intestazioni_telefono).json()
+    assert len(elenco) >= 2
+    corrente = [s for s in elenco if s["current"]]
+    assert len(corrente) == 1, "una sola sessione deve risultare quella corrente"
+    assert corrente[0]["device_label"] == "Samsung"
+    assert all("token" not in chiave_campo for s in elenco for chiave_campo in s)
+
+    altra = next(s for s in elenco if not s["current"])
+    assert http.delete(f"/api/v1/auth/sessions/{altra['id']}", headers=intestazioni_telefono).status_code == 204
+    dopo = http.get("/api/v1/auth/sessions", headers=intestazioni_telefono).json()
+    assert all(s["id"] != altra["id"] for s in dopo)
+
+
+def test_non_si_revocano_le_sessioni_altrui(clients, app_ctx):
+    http, _ = app_ctx
+    alice, bob = clients
+    sessioni = http.get("/api/v1/auth/sessions", headers=alice.auth_headers).json()
+    assert sessioni, "alice deve avere almeno una sessione"
+    r = http.delete(f"/api/v1/auth/sessions/{sessioni[0]['id']}", headers=bob.auth_headers)
+    assert r.status_code == 404

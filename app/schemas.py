@@ -156,6 +156,18 @@ class RecoveryComplete(Secure):
     new_protected_key_nonce: bytes
 
 
+class SessionOut(BaseModel):
+    """Un dispositivo collegato. Non espone il token, nemmeno in forma
+    troncata: serve a riconoscere la sessione, non a ricostruirla."""
+
+    id: str
+    device_label: str
+    created_at: datetime
+    expires_at: datetime
+    #: la sessione da cui arriva la richiesta, per non farsela revocare per sbaglio
+    current: bool
+
+
 class MeResponse(BaseModel):
     id: str
     email: str

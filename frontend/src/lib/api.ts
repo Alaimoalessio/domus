@@ -109,6 +109,14 @@ export interface AdminUser {
   storage_quota_bytes: number;
 }
 
+export interface SessionOut {
+  id: string;
+  device_label: string;
+  created_at: string;
+  expires_at: string;
+  current: boolean;
+}
+
 export interface MeResponse {
   id: string;
   email: string;
@@ -256,6 +264,14 @@ export class Api {
       method: "POST",
       body: JSON.stringify({ refresh_token: this.refreshToken }),
     });
+  }
+
+  sessions() {
+    return this.json<SessionOut[]>("/auth/sessions");
+  }
+
+  revokeSession(id: string) {
+    return this.json<void>(`/auth/sessions/${id}`, { method: "DELETE" });
   }
 
   changeMasterPassword(body: unknown) {

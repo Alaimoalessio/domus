@@ -1,7 +1,8 @@
-import { CloudOff, Loader2, LogOut, Plus, Printer, Search, Settings, ShieldCheck, Trash2, TriangleAlert, Users } from "lucide-react";
+import { CloudOff, Loader2, LogOut, Plus, Printer, Search, Settings, ShieldCheck, Stethoscope, Trash2, TriangleAlert, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { HealthPanel } from "../components/HealthPanel";
 import { ItemModal } from "../components/ItemModal";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
@@ -18,6 +19,7 @@ export default function Vault() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [needsKit, setNeedsKit] = useState(false);
+  const [saluteAperta, setSaluteAperta] = useState(false);
   // Il cursore deve restare stabile fra un refresh e l'altro senza rigenerare
   // la callback, altrimenti l'effetto si riattacca a ogni sincronizzazione.
   const statoRef = useRef<VaultState>(VAULT_VUOTO);
@@ -230,6 +232,28 @@ export default function Vault() {
         {error && (
           <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             {error}
+          </div>
+        )}
+
+        {!loading && items.length > 0 && (
+          <div className="mb-4">
+            <button
+              onClick={() => setSaluteAperta((v) => !v)}
+              aria-expanded={saluteAperta}
+              className="mb-2 flex items-center gap-2 text-sm text-neutral-500 transition hover:text-neutral-300"
+            >
+              <Stethoscope className="h-4 w-4" />
+              {saluteAperta ? "Nascondi il controllo" : "Controlla la salute del vault"}
+            </button>
+            {saluteAperta && (
+              <HealthPanel
+                items={items}
+                onApri={(item) => {
+                  setEditing(item);
+                  setModalOpen(true);
+                }}
+              />
+            )}
           </div>
         )}
 

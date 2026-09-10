@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import { BiometricPanel } from "../components/BiometricPanel";
 import { ExportPanel } from "../components/ExportPanel";
 import { ImportPanel } from "../components/ImportPanel";
+import { SessionsPanel } from "../components/SessionsPanel";
 import { TrashPanel } from "../components/TrashPanel";
 import { RecoveryKit } from "../components/RecoveryKit";
 import { Button } from "../components/ui/button";
@@ -97,6 +98,11 @@ export default function Settings() {
             Importa da un altro gestore
           </h2>
           <ImportPanel session={session} onDone={refresh} />
+        </section>
+
+        <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-100">Dispositivi collegati</h2>
+          <SessionsPanel />
         </section>
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">

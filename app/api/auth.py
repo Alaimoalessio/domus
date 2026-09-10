@@ -2,30 +2,33 @@ import secrets
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import (create_access_token, create_recovery_token, fake_kdf_salt,
+from app.core.security import (create_access_token, create_recovery_token,
+                               decode_access_token, fake_kdf_salt,
                                hash_auth_key, hash_refresh_token, needs_rehash,
                                new_refresh_token, verify_auth_key)
 from app.db.models import RefreshToken, User
-from app.deps import DB, CurrentUser, RecoveringUser, audit, utcnow
+from app.deps import DB, CurrentUser, RecoveringUser, audit, bearer, utcnow
 from app.schemas import (ChangeMasterPassword, LoginRequest, LogoutRequest, MeResponse,
                          PreloginRequest, PreloginResponse, RecoveryComplete,
                          RecoveryPreloginRequest, RecoveryPreloginResponse,
                          RecoveryStartRequest, RecoveryStartResponse, RecoverySetup,
                          RecoveryStatus, RefreshRequest, RegisterRequest,
-                         RegisterResponse, TokenResponse)
+                         RegisterResponse, SessionOut, TokenResponse)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _issue(db: Session, user: User, device: str, family_id: str | None = None) -> TokenResponse:
     raw, token_hash = new_refresh_token()
+    session_id = uuid.uuid4().hex
     db.add(
         RefreshToken(
+            id=session_id,
             user_id=user.id,
             family_id=family_id or uuid.uuid4().hex,
             token_hash=token_hash,
@@ -34,7 +37,9 @@ def _issue(db: Session, user: User, device: str, family_id: str | None = None) -
         )
     )
     return TokenResponse(
-        access_token=create_access_token(user.id, user.security_stamp, user.is_admin),
+        access_token=create_access_token(
+            user.id, user.security_stamp, user.is_admin, session_id
+        ),
         refresh_token=raw,
         expires_in=settings.access_token_minutes * 60,
         user_id=user.id,
@@ -199,6 +204,52 @@ def logout_all(db: DB, user: CurrentUser, request: Request):
     user.security_stamp = secrets.token_hex(16)  # invalida anche gli access token vivi
     _revoke_all(db, user.id)
     audit(db, request, "auth.logout_all", user.id)
+    db.commit()
+
+
+@router.get("/sessions", response_model=list[SessionOut])
+def sessions(db: DB, user: CurrentUser, cred=Depends(bearer)):
+    """I dispositivi con una sessione ancora valida. Il refresh token e' salvato
+    solo come hash, quindi si riconosce la sessione corrente ricalcolandolo da
+    quello presentato — non c'e' modo di risalire al token dal database."""
+    attuale = None
+    if cred is not None:
+        payload = decode_access_token(cred.credentials)
+        attuale = (payload or {}).get("sid")
+
+    righe = db.scalars(
+        select(RefreshToken)
+        .where(
+            RefreshToken.user_id == user.id,
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > utcnow(),
+        )
+        .order_by(RefreshToken.created_at.desc())
+    )
+    return [
+        SessionOut(
+            id=r.id,
+            device_label=r.device_label or "dispositivo senza nome",
+            created_at=r.created_at,
+            expires_at=r.expires_at,
+            current=r.id == attuale,
+        )
+        for r in righe
+    ]
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+def revoke_session(session_id: str, db: DB, user: CurrentUser, request: Request):
+    riga = db.scalar(
+        select(RefreshToken).where(
+            RefreshToken.id == session_id, RefreshToken.user_id == user.id
+        )
+    )
+    if riga is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "sessione inesistente")
+    if riga.revoked_at is None:
+        riga.revoked_at = utcnow()
+    audit(db, request, "auth.session.revoke", user.id)
     db.commit()
 
 

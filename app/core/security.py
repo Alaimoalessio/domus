@@ -86,9 +86,19 @@ def _token(user_id: str, security_stamp: str, scope: str, minutes: int, **extra)
     )
 
 
-def create_access_token(user_id: str, security_stamp: str, is_admin: bool) -> str:
+def create_access_token(
+    user_id: str, security_stamp: str, is_admin: bool, session_id: str | None = None
+) -> str:
+    """`sid` lega l'access token alla sessione che lo ha emesso: senza, l'elenco
+    dei dispositivi non saprebbe quale riga sia quella da cui stai guardando, e
+    potresti revocare la tua stessa sessione credendo di chiuderne un'altra."""
     return _token(
-        user_id, security_stamp, "access", settings.access_token_minutes, adm=is_admin
+        user_id,
+        security_stamp,
+        "access",
+        settings.access_token_minutes,
+        adm=is_admin,
+        sid=session_id,
     )
 
 
