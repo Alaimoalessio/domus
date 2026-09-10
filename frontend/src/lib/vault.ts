@@ -376,6 +376,27 @@ export async function updateItem(
 }
 
 export const deleteItem = (id: string) => api.deleteItem(id);
+export const restoreItem = (id: string) => api.restoreItem(id);
+
+export interface VoceCestinata extends DecryptedItem {
+  deletedAt: string;
+  attachments: number;
+}
+
+/** Il cestino arriva cifrato come tutto il resto: il nome si legge solo qui. */
+export async function caricaCestino(session: Session): Promise<VoceCestinata[]> {
+  const righe = await api.trash();
+  const out: VoceCestinata[] = [];
+  for (const raw of righe) {
+    try {
+      const voce = await decryptItem(session, raw);
+      out.push({ ...voce, deletedAt: raw.deleted_at, attachments: raw.attachments });
+    } catch {
+      // Una voce illeggibile non deve nascondere le altre nel cestino.
+    }
+  }
+  return out;
+}
 
 // ------------------------------------------------------------------ files
 

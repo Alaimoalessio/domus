@@ -176,7 +176,8 @@ def delete_file(file_id: str, db: DB, user: CurrentUser, request: Request):
         user.storage_used_bytes = max(0, user.storage_used_bytes - f.size_bytes)
     f.status = "deleted"
     f.deleted_at = utcnow()
-    f.inline_data = None
+    # Come per le voci: il contenuto resta fino al GC, cosi' la cancellazione
+    # e' annullabile finche' dura il periodo di grazia.
     f.seq = next_seq(user)
     audit(db, request, "file.delete", user.id)
     db.commit()

@@ -1,11 +1,13 @@
+from datetime import timedelta
+
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.db.models import FileObject, VaultItem
 from app.deps import DB, CurrentUser, audit, next_seq, utcnow
 from app.schemas import (FileOut, ItemCreate, ItemOut, ItemUpdate, SyncResponse,
-                         Tombstone)
+                         Tombstone, TrashItem)
 
 router = APIRouter(prefix="/vault", tags=["vault"])
 
@@ -93,6 +95,87 @@ def sync(db: DB, user: CurrentUser, since: int = Query(default=0, ge=0)):
     )
 
 
+@router.get("/trash", response_model=list[TrashItem])
+def trash(db: DB, user: CurrentUser):
+    """Voci cancellate ancora recuperabili. Oltre il periodo di grazia il GC le
+    rimuove davvero, quindi qui si mostra solo cio' che esiste ancora."""
+    limite = utcnow() - timedelta(days=settings.gc_grace_days)
+    righe = db.scalars(
+        select(VaultItem)
+        .where(
+            VaultItem.user_id == user.id,
+            VaultItem.deleted_at.is_not(None),
+            VaultItem.deleted_at > limite,
+        )
+        .order_by(VaultItem.deleted_at.desc())
+    )
+    out = []
+    for i in righe:
+        allegati = db.scalar(
+            select(func.count()).select_from(FileObject).where(
+                FileObject.item_id == i.id,
+                FileObject.user_id == user.id,
+                FileObject.deleted_at == i.deleted_at,
+            )
+        ) or 0
+        out.append(
+            TrashItem(
+                id=i.id,
+                item_type=i.item_type,
+                nonce=i.nonce,
+                ciphertext=i.ciphertext,
+                wrapped_key=i.wrapped_key,
+                wrapped_key_nonce=i.wrapped_key_nonce,
+                revision=i.revision,
+                deleted_at=i.deleted_at,
+                attachments=allegati,
+            )
+        )
+    return out
+
+
+@router.post("/items/{item_id}/restore", response_model=ItemOut)
+def restore_item(item_id: str, db: DB, user: CurrentUser, request: Request):
+    """Riporta indietro una voce e gli allegati cancellati NELLO STESSO
+    momento: un allegato eliminato prima, di proposito, non deve tornare."""
+    item = db.scalar(
+        select(VaultItem).where(VaultItem.id == item_id, VaultItem.user_id == user.id)
+    )
+    if item is None or item.deleted_at is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "voce non nel cestino")
+    if item.deleted_at <= utcnow() - timedelta(days=settings.gc_grace_days):
+        raise HTTPException(status.HTTP_410_GONE, "periodo di recupero scaduto")
+
+    allegati = list(
+        db.scalars(
+            select(FileObject).where(
+                FileObject.item_id == item.id,
+                FileObject.user_id == user.id,
+                FileObject.status == "deleted",
+                FileObject.deleted_at == item.deleted_at,
+            )
+        )
+    )
+    da_riprendere = sum(f.size_bytes for f in allegati)
+    if user.storage_used_bytes + da_riprendere > user.storage_quota_bytes:
+        raise HTTPException(
+            status.HTTP_507_INSUFFICIENT_STORAGE,
+            "quota insufficiente per ripristinare gli allegati",
+        )
+
+    item.deleted_at = None
+    item.seq = next_seq(user)
+    for f in allegati:
+        f.status = "active"
+        f.deleted_at = None
+        f.seq = next_seq(user)
+        user.storage_used_bytes += f.size_bytes
+
+    audit(db, request, "vault.item.restore", user.id, f"allegati: {len(allegati)}")
+    db.commit()
+    return _to_out(item)
+
+
 @router.post("/items", response_model=ItemOut, status_code=201)
 def create_item(payload: ItemCreate, db: DB, user: CurrentUser):
     if len(payload.ciphertext) > settings.max_item_ciphertext:
@@ -156,8 +239,9 @@ def delete_item(item_id: str, db: DB, user: CurrentUser, request: Request):
     item = _owned(db, user, item_id)
     now = utcnow()
     item.deleted_at = now
-    item.ciphertext = b""       # il ciphertext non serve piu' a nessuno
-    item.wrapped_key = b""
+    # Il ciphertext NON viene azzerato: resta per il periodo di grazia, cosi'
+    # una cancellazione per sbaglio si puo' annullare. Lo elimina il GC insieme
+    # al tombstone. Per il server resta ciphertext opaco come qualunque altro.
     item.seq = next_seq(user)
 
     # Gli allegati seguono l'item. Senza questo restavano attivi per sempre:
@@ -175,7 +259,9 @@ def delete_item(item_id: str, db: DB, user: CurrentUser, request: Request):
             user.storage_used_bytes = max(0, user.storage_used_bytes - f.size_bytes)
         f.status = "deleted"
         f.deleted_at = now
-        f.inline_data = None
+        # inline_data NON viene azzerato: sotto i 64 KB il contenuto sta qui e
+        # non sul filesystem, quindi cancellarlo renderebbe il ripristino una
+        # bugia — la riga tornerebbe indietro vuota. Lo elimina il GC.
         f.seq = next_seq(user)
         orfani += 1
 

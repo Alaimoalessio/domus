@@ -197,6 +197,22 @@ class ItemOut(Secure):
     updated_at: datetime
 
 
+class TrashItem(Secure):
+    """Voce cancellata ma ancora recuperabile. Porta il ciphertext perche' il
+    nome, come tutto il resto, e' leggibile solo dal client."""
+
+    id: str
+    item_type: str
+    nonce: bytes
+    ciphertext: bytes
+    wrapped_key: bytes
+    wrapped_key_nonce: bytes
+    revision: int
+    deleted_at: datetime
+    #: quanti allegati tornerebbero indietro insieme alla voce
+    attachments: int
+
+
 class Tombstone(BaseModel):
     id: str
     seq: int

@@ -568,3 +568,62 @@ def test_utenti_bloccati_non_occupano_posti(clients, app_ctx):
         assert d.register("entra@family.local", "password-entra-2026")["status"] == "pending"
     finally:
         settings.max_users = originale
+
+
+# ================================================================== cestino
+
+def test_cestino_e_ripristino(clients, app_ctx):
+    """Un tocco sbagliato su un telefono e' questione di tempo: la voce deve
+    poter tornare indietro, allegati compresi."""
+    http, _ = app_ctx
+    alice, _ = clients
+
+    segreto = {"name": "Da recuperare", "password": "non-deve-sparire"}
+    item = alice.create_item("login", segreto)
+    meta = alice.upload(b"D" * 40_000, "allegato.pdf", "application/pdf", item_id=item["id"])
+    quota_piena = http.get("/api/v1/auth/me", headers=alice.auth_headers).json()["storage_used_bytes"]
+
+    http.delete(f"/api/v1/vault/items/{item['id']}", headers=alice.auth_headers)
+
+    cestino = http.get("/api/v1/vault/trash", headers=alice.auth_headers).json()
+    voce = next(v for v in cestino if v["id"] == item["id"])
+    assert voce["attachments"] == 1
+    # il contenuto deve essere ancora li', altrimenti non c'e' niente da ripristinare
+    assert alice.decrypt_item({**voce, "item_type": voce["item_type"]}) == segreto
+    assert http.get("/api/v1/auth/me", headers=alice.auth_headers).json()["storage_used_bytes"] < quota_piena
+
+    r = http.post(f"/api/v1/vault/items/{item['id']}/restore", headers=alice.auth_headers)
+    assert r.status_code == 200
+
+    letto = http.get(f"/api/v1/vault/items/{item['id']}", headers=alice.auth_headers).json()
+    assert alice.decrypt_item(letto) == segreto
+    assert http.get("/api/v1/auth/me", headers=alice.auth_headers).json()["storage_used_bytes"] == quota_piena
+    assert http.get(f"/api/v1/files/{meta['id']}/content", headers=alice.auth_headers).status_code == 200
+
+
+def test_un_allegato_gia_cancellato_non_torna_col_ripristino(clients, app_ctx):
+    """Chi elimina un allegato di proposito non se lo deve ritrovare indietro
+    ripristinando la voce settimane dopo."""
+    http, _ = app_ctx
+    alice, _ = clients
+
+    item = alice.create_item("login", {"name": "Con due allegati", "password": "x"})
+    tenuto = alice.upload(b"A" * 20_000, "resta.pdf", "application/pdf", item_id=item["id"])
+    scartato = alice.upload(b"B" * 20_000, "gia-tolto.pdf", "application/pdf", item_id=item["id"])
+
+    http.delete(f"/api/v1/files/{scartato['id']}", headers=alice.auth_headers)
+    http.delete(f"/api/v1/vault/items/{item['id']}", headers=alice.auth_headers)
+    http.post(f"/api/v1/vault/items/{item['id']}/restore", headers=alice.auth_headers)
+
+    assert http.get(f"/api/v1/files/{tenuto['id']}/content", headers=alice.auth_headers).status_code == 200
+    assert http.get(f"/api/v1/files/{scartato['id']}/content", headers=alice.auth_headers).status_code == 404
+
+
+def test_cestino_isolato_fra_utenti(clients, app_ctx):
+    http, _ = app_ctx
+    alice, bob = clients
+    item = alice.create_item("login", {"name": "solo di alice", "password": "x"})
+    http.delete(f"/api/v1/vault/items/{item['id']}", headers=alice.auth_headers)
+
+    assert all(v["id"] != item["id"] for v in http.get("/api/v1/vault/trash", headers=bob.auth_headers).json())
+    assert http.post(f"/api/v1/vault/items/{item['id']}/restore", headers=bob.auth_headers).status_code == 404

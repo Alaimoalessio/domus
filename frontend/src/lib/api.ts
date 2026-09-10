@@ -69,6 +69,11 @@ export interface FileOut {
   created_at: string;
 }
 
+export interface TrashItemOut extends ItemOut {
+  deleted_at: string;
+  attachments: number;
+}
+
 export interface SyncResponse {
   seq: number;
   items: ItemOut[];
@@ -319,6 +324,14 @@ export class Api {
 
   deleteItem(id: string) {
     return this.json<void>(`/vault/items/${id}`, { method: "DELETE" });
+  }
+
+  trash() {
+    return this.json<TrashItemOut[]>("/vault/trash");
+  }
+
+  restoreItem(id: string) {
+    return this.json<ItemOut>(`/vault/items/${id}/restore`, { method: "POST" });
   }
 
   // ---------------------------------------------------------------- files
