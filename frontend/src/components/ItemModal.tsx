@@ -127,13 +127,17 @@ export function ItemModal({
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-neutral-300">Password</label>
+            {/* min-w-0 sull'input: un campo di testo ha una larghezza
+                intrinseca di una ventina di caratteri e con min-width:auto non
+                scende sotto quella, spingendo i pulsanti fuori dalla modale a
+                375px di larghezza. */}
             <div className="flex gap-2">
               <input
                 type={revealed ? "text" : "password"}
                 value={draft.password ?? ""}
                 onChange={set("password")}
                 readOnly={readOnly}
-                className="h-10 flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 font-mono text-sm text-neutral-100 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
+                className="h-10 w-full min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 font-mono text-base text-neutral-100 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 sm:text-sm"
               />
               <Button variant="outline" size="icon" onClick={() => setRevealed((v) => !v)}>
                 {revealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

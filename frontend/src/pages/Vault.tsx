@@ -101,25 +101,27 @@ export default function Vault() {
   return (
     <div className="min-h-screen bg-neutral-950">
       <header className="sticky top-0 z-10 border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-4xl items-center gap-4 px-4 py-4">
+        <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-indigo-400" />
             <span className="font-semibold text-neutral-100">Domus</span>
           </div>
-          <div className="relative ml-auto max-w-xs flex-1">
+          {/* Su mobile la ricerca prende una riga intera: schiacciata fra logo
+              e tre icone diventava un campo da pochi caratteri. */}
+          <div className="relative order-last w-full sm:order-none sm:ml-auto sm:w-auto sm:max-w-xs sm:flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-600" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Cerca..."
-              className="h-9 w-full rounded-lg border border-neutral-800 bg-neutral-900 pl-9 pr-3 text-sm text-neutral-100 outline-none focus:border-indigo-500"
+              className="h-10 w-full rounded-lg border border-neutral-800 bg-neutral-900 pl-9 pr-3 text-base text-neutral-100 outline-none focus:border-indigo-500 sm:h-9 sm:text-sm"
             />
           </div>
           {session.isAdmin && !session.offline && (
             <Link
               to="/admin"
               title="Amministrazione"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-400 transition hover:bg-neutral-900"
+              className="ml-auto flex h-10 w-10 items-center justify-center rounded-lg text-amber-400 transition hover:bg-neutral-900 sm:ml-0 sm:h-8 sm:w-8"
             >
               <Users className="h-4 w-4" />
             </Link>
@@ -127,7 +129,7 @@ export default function Vault() {
           <Link
             to="/settings"
             title="Impostazioni"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100 sm:h-8 sm:w-8"
           >
             <Settings className="h-4 w-4" />
           </Link>
@@ -138,7 +140,7 @@ export default function Vault() {
       </header>
 
       <main className="mx-auto max-w-4xl px-4 py-8">
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-neutral-100">Le tue credenziali</h1>
             <p className="text-sm text-neutral-500">
@@ -168,7 +170,7 @@ export default function Vault() {
         )}
 
         {needsKit && !session.offline && !loading && (
-          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3">
+          <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3 sm:flex-row sm:items-center">
             <TriangleAlert className="h-4 w-4 shrink-0 text-amber-400" />
             <span className="flex-1 text-sm text-amber-200/90">
               Non hai un kit di emergenza: se dimentichi la Master Password, questo vault e'
@@ -176,7 +178,7 @@ export default function Vault() {
             </span>
             <Link
               to="/settings"
-              className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 px-3 py-1.5 text-sm font-medium text-amber-200 transition hover:bg-amber-500/10"
+              className="flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 px-3 py-2 text-sm font-medium text-amber-200 transition hover:bg-amber-500/10"
             >
               <Printer className="h-3.5 w-3.5" /> Crea il kit
             </Link>
@@ -231,12 +233,16 @@ export default function Vault() {
                     {item.payload.username || item.payload.url || "—"}
                   </div>
                 </button>
+                {/* Il cestino resta visibile di default e si nasconde solo
+                    dove esiste un puntatore: su un telefono l'hover non c'e',
+                    e con opacity-0 di base non compariva mai — la voce non era
+                    cancellabile affatto. */}
                 {!session.offline && (
                   <Button
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => remove(item)}
-                    className="opacity-0 transition group-hover:opacity-100"
+                    className="opacity-100 transition md:opacity-0 md:group-hover:opacity-100"
                   >
                     <Trash2 className="h-4 w-4 text-neutral-500" />
                   </Button>

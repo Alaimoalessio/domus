@@ -157,8 +157,11 @@ export default function Admin() {
 
             <section>
               <h2 className="mb-4 text-lg font-semibold text-neutral-100">Utenti</h2>
-              <div className="overflow-hidden rounded-2xl border border-neutral-800">
-                <table className="w-full text-sm">
+              {/* overflow-x-auto e non overflow-hidden: a 375px la tabella e'
+                  piu' larga del contenitore e le ultime colonne — spazio usato
+                  e pulsante di blocco — erano tagliate via, non scorribili. */}
+              <div className="overflow-x-auto rounded-2xl border border-neutral-800">
+                <table className="w-full min-w-[34rem] text-sm">
                   <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wider text-neutral-500">
                     <tr>
                       <th className="px-4 py-3 font-medium">Utente</th>
