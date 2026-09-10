@@ -1,9 +1,11 @@
-import { Check, Copy, Download, Eye, EyeOff, Loader2, Paperclip, Wand2, X } from "lucide-react";
+import { Check, Copy, Download, Eye, EyeOff, FileText, Loader2, Paperclip, Trash2, Wand2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { FileOut } from "../lib/api";
 import type { DecryptedItem, ItemPayload, Session } from "../lib/vault";
-import { createItem, downloadFile, updateItem, uploadFile } from "../lib/vault";
+import { api } from "../lib/api";
+import { createItem, decryptFileMeta, downloadFile, updateItem, uploadFile } from "../lib/vault";
+import type { FileMeta } from "../lib/vault";
 import { PasswordGenerator } from "./PasswordGenerator";
 import { TotpDisplay } from "./TotpDisplay";
 import { Button } from "./ui/button";
@@ -33,12 +35,33 @@ export function ItemModal({
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  // I nomi degli allegati sono cifrati come tutto il resto: senza decifrarli
+  // l'elenco mostrava solo "244 KB", che non dice nulla su cosa sia il file.
+  const [nomi, setNomi] = useState<Record<string, FileMeta>>({});
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setDraft(item?.payload ?? EMPTY);
     setRevealed(false);
   }, [item]);
+
+  useEffect(() => {
+    let annullato = false;
+    void (async () => {
+      const risolti: Record<string, FileMeta> = {};
+      for (const f of attachments) {
+        try {
+          risolti[f.id] = (await decryptFileMeta(session, f)).meta;
+        } catch {
+          // Un allegato con metadati illeggibili non deve nascondere gli altri.
+        }
+      }
+      if (!annullato) setNomi(risolti);
+    })();
+    return () => {
+      annullato = true;
+    };
+  }, [attachments, session]);
 
   const set = (key: keyof ItemPayload) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setDraft((d) => ({ ...d, [key]: e.target.value }));
@@ -89,6 +112,21 @@ export function ItemModal({
     } finally {
       setBusy("");
       if (fileInput.current) fileInput.current.value = "";
+    }
+  };
+
+  const rimuoviAllegato = async (f: FileOut) => {
+    const nome = nomi[f.id]?.name ?? "questo allegato";
+    if (!window.confirm(`Eliminare ${nome}? L'operazione non e' reversibile.`)) return;
+    setBusy("Eliminazione...");
+    setError("");
+    try {
+      await api.deleteFile(f.id);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Eliminazione non riuscita");
+    } finally {
+      setBusy("");
     }
   };
 
@@ -222,20 +260,35 @@ export function ItemModal({
                 attachments.map((f) => (
                   <div
                     key={f.id}
-                    className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2"
+                    className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2"
                   >
-                    <span className="truncate font-mono text-xs text-neutral-400">
-                      {(f.size_bytes / 1024).toFixed(0)} KB
-                    </span>
+                    <FileText className="h-4 w-4 shrink-0 text-neutral-600" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm text-neutral-200">
+                        {nomi[f.id]?.name ?? "Nome non decifrabile"}
+                      </div>
+                      <div className="text-xs text-neutral-600">{dimensione(f.size_bytes)}</div>
+                    </div>
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      disabled={readOnly}
+                      disabled={readOnly || busy !== ""}
                       title={readOnly ? "Non disponibile senza server" : "Scarica"}
                       onClick={() => fetchAttachment(f)}
                     >
                       <Download className="h-3.5 w-3.5" />
                     </Button>
+                    {!readOnly && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={busy !== ""}
+                        title="Elimina"
+                        onClick={() => rimuoviAllegato(f)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-neutral-500" />
+                      </Button>
+                    )}
                   </div>
                 ))
               )}
@@ -269,6 +322,15 @@ export function ItemModal({
       </div>
     </div>
   );
+}
+
+/** Il ciphertext ha 16 byte di tag in piu' del file originale: si mostra la
+ *  dimensione reale del contenuto, non quella occupata sul server. */
+function dimensione(byteCiphertext: number): string {
+  const v = Math.max(0, byteCiphertext - 16);
+  if (v < 1024) return `${v} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(0)} KB`;
+  return `${(v / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function Input({
