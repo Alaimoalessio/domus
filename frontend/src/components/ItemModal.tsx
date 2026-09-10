@@ -1,4 +1,4 @@
-import { Check, Copy, Download, Eye, EyeOff, FileText, Loader2, Paperclip, Trash2, Wand2, X } from "lucide-react";
+import { Check, ChevronDown, Clock, Copy, Download, Eye, EyeOff, FileText, Loader2, Paperclip, Trash2, Wand2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useModaleTastiera } from "../lib/useModaleTastiera";
@@ -8,6 +8,7 @@ import type { DecryptedItem, ItemPayload, Session } from "../lib/vault";
 import { api } from "../lib/api";
 import { createItem, decryptFileMeta, downloadFile, updateItem, uploadFile } from "../lib/vault";
 import type { FileMeta } from "../lib/vault";
+import { descrizione, ORDINE_TIPI, TIPI, type TipoVoce } from "../lib/tipi";
 import { PasswordGenerator } from "./PasswordGenerator";
 import { TotpDisplay } from "./TotpDisplay";
 import { Button } from "./ui/button";
@@ -34,6 +35,11 @@ export function ItemModal({
   const [draft, setDraft] = useState<ItemPayload>(item?.payload ?? EMPTY);
   const [revealed, setRevealed] = useState(false);
   const [generatore, setGeneratore] = useState(false);
+  const [storicoAperto, setStoricoAperto] = useState(false);
+  // Il tipo si sceglie solo alla creazione: cambiarlo su una voce esistente
+  // lascerebbe campi popolati ma non piu' visibili, cioe' dati che ci sono e
+  // non si vedono. Meglio crearne una nuova.
+  const [tipo, setTipo] = useState<TipoVoce>((item?.itemType as TipoVoce) ?? "login");
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -46,6 +52,7 @@ export function ItemModal({
   useEffect(() => {
     setDraft(item?.payload ?? EMPTY);
     setRevealed(false);
+    setTipo((item?.itemType as TipoVoce) ?? "login");
   }, [item]);
 
   useEffect(() => {
@@ -92,7 +99,7 @@ export function ItemModal({
     setError("");
     try {
       if (item) await updateItem(session, item, draft);
-      else await createItem(session, "login", draft);
+      else await createItem(session, tipo, draft);
       onSaved();
       onClose();
     } catch (err) {
@@ -150,6 +157,8 @@ export function ItemModal({
     }
   };
 
+  const campi = descrizione(tipo).campi;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
@@ -177,9 +186,50 @@ export function ItemModal({
         </div>
 
         <div className="space-y-4 p-6">
-          <Input label="Nome" value={draft.name} onChange={set("name")} placeholder="Banca" readOnly={readOnly} />
-          <Input label="Username" value={draft.username ?? ""} onChange={set("username")} readOnly={readOnly} />
+          {!item && !readOnly && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-neutral-300">Tipo</label>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {ORDINE_TIPI.map((k) => {
+                  const t = TIPI[k];
+                  const Icona = t.icona;
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setTipo(k)}
+                      className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-3 text-xs font-medium transition ${
+                        tipo === k
+                          ? "border-indigo-500/40 bg-indigo-500/10 text-indigo-200"
+                          : "border-neutral-800 text-neutral-500 hover:text-neutral-300"
+                      }`}
+                    >
+                      <Icona className="h-4 w-4" />
+                      {t.etichetta}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-neutral-600">{TIPI[tipo].suggerimento}</p>
+            </div>
+          )}
 
+          <Input label="Nome" value={draft.name} onChange={set("name")} placeholder="Banca" readOnly={readOnly} />
+          {campi.username && (
+            <Input label="Username" value={draft.username ?? ""} onChange={set("username")} readOnly={readOnly} />
+          )}
+
+          {campi.carta && (
+            <>
+              <Input label="Intestatario" value={draft.intestatario ?? ""} onChange={set("intestatario")} readOnly={readOnly} />
+              <Input label="Numero" value={draft.numero ?? ""} onChange={set("numero")} readOnly={readOnly} />
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Scadenza" value={draft.scadenza ?? ""} onChange={set("scadenza")} placeholder="MM/AA" readOnly={readOnly} />
+                <Input label="PIN" value={draft.pin ?? ""} onChange={set("pin")} readOnly={readOnly} />
+              </div>
+            </>
+          )}
+
+          {campi.password && (
           <div className="space-y-2">
             <label className="text-sm font-medium text-neutral-300">Password</label>
             {/* min-w-0 sull'input: un campo di testo ha una larghezza
@@ -225,9 +275,42 @@ export function ItemModal({
               La clipboard viene svuotata automaticamente dopo 20 secondi.
             </p>
           </div>
+          )}
 
-          <Input label="URL" value={draft.url ?? ""} onChange={set("url")} placeholder="https://" readOnly={readOnly} />
+          {(item?.payload.storico?.length ?? 0) > 0 && (
+            <div className="rounded-lg border border-neutral-800 bg-neutral-950">
+              <button
+                onClick={() => setStoricoAperto((v) => !v)}
+                aria-expanded={storicoAperto}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-neutral-500 transition hover:text-neutral-300"
+              >
+                <Clock className="h-3.5 w-3.5" />
+                <span className="flex-1">
+                  {item!.payload.storico!.length} password precedenti
+                </span>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${storicoAperto ? "rotate-180" : ""}`}
+                />
+              </button>
+              {storicoAperto && (
+                <div className="space-y-1 border-t border-neutral-800 px-3 py-2">
+                  {item!.payload.storico!.map((v, idx) => (
+                    <VoceStoricoRiga key={idx} voce={v} />
+                  ))}
+                  <p className="pt-1 text-xs text-neutral-700">
+                    Servono quando un sito chiede la vecchia password per cambiarla, o quando un
+                    cambio non e' andato a buon fine.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
+          {campi.url && (
+            <Input label="URL" value={draft.url ?? ""} onChange={set("url")} placeholder="https://" readOnly={readOnly} />
+          )}
+
+          {campi.totp && (
           <div className="space-y-2">
             <label className="text-sm font-medium text-neutral-300">
               Secret 2FA <span className="text-neutral-600">(opzionale)</span>
@@ -248,6 +331,7 @@ export function ItemModal({
               </p>
             )}
           </div>
+          )}
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-neutral-300">Note</label>
@@ -348,6 +432,42 @@ function dimensione(byteCiphertext: number): string {
   if (v < 1024) return `${v} B`;
   if (v < 1024 * 1024) return `${(v / 1024).toFixed(0)} KB`;
   return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function VoceStoricoRiga({ voce }: { voce: { password: string; cambiata: string } }) {
+  const [mostrata, setMostrata] = useState(false);
+  const [copiata, setCopiata] = useState(false);
+
+  const copia = async () => {
+    await navigator.clipboard.writeText(voce.password);
+    setCopiata(true);
+    setTimeout(() => setCopiata(false), 2000);
+  };
+
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-400">
+        {mostrata ? voce.password : "•".repeat(Math.min(voce.password.length, 16))}
+      </span>
+      <span className="shrink-0 text-xs text-neutral-700">
+        {new Date(voce.cambiata).toLocaleDateString("it-IT")}
+      </span>
+      <button
+        onClick={() => setMostrata((v) => !v)}
+        title={mostrata ? "Nascondi" : "Mostra"}
+        className="shrink-0 text-neutral-600 transition hover:text-neutral-300"
+      >
+        {mostrata ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+      </button>
+      <button
+        onClick={copia}
+        title="Copia"
+        className="shrink-0 text-neutral-600 transition hover:text-neutral-300"
+      >
+        {copiata ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  );
 }
 
 function Input({

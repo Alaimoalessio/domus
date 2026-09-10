@@ -57,10 +57,14 @@ export function parseCsv(testo: string): string[][] {
 
 export type Formato = "chrome" | "bitwarden" | "1password" | "generico";
 
+/** Solo i campi che possono arrivare da un CSV: lo storico delle password e
+ *  i preferiti nascono dentro Domus e non hanno una colonna da cui leggerli. */
+type CampoImportabile = "name" | "username" | "password" | "url" | "notes" | "totp";
+
 /** Nomi di colonna per ciascun campo, in ordine di preferenza. Il
  *  riconoscimento e' per intestazione e non per posizione: le colonne cambiano
  *  ordine fra versioni dello stesso gestore. */
-const COLONNE: Record<keyof ItemPayload, string[]> = {
+const COLONNE: Record<CampoImportabile, string[]> = {
   name: ["name", "title", "nome", "titolo", "account"],
   username: ["username", "login_username", "user", "utente", "email", "login"],
   password: ["password", "login_password", "pass"],
@@ -104,7 +108,7 @@ export function analizza(testo: string): RisultatoAnalisi {
   }
 
   const intestazioni = righe[0].map((x) => x.trim().toLowerCase());
-  const indice = (campo: keyof ItemPayload): number => {
+  const indice = (campo: CampoImportabile): number => {
     for (const nome of COLONNE[campo]) {
       const i = intestazioni.indexOf(nome);
       if (i >= 0) return i;

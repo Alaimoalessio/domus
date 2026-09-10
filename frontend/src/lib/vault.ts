@@ -48,6 +48,18 @@ export interface Session {
   offline: boolean;
 }
 
+/** Una password sostituita, con la data del cambio. */
+export interface VoceStorico {
+  password: string;
+  cambiata: string;
+}
+
+/** Quante password precedenti si conservano. Cinque e' anche la scelta di
+ *  Bitwarden: abbastanza per il caso d'uso reale — un sito che chiede la
+ *  vecchia password per cambiarla, o un cambio che non e' andato a buon fine —
+ *  senza trasformare la voce in un archivio di segreti scaduti. */
+const STORICO_MAX = 5;
+
 export interface ItemPayload {
   name: string;
   username?: string;
@@ -57,6 +69,19 @@ export interface ItemPayload {
   /** Secret base32 del 2FA. E' dentro il payload, quindi viaggia cifrato
    *  esattamente come la password: il server non lo distingue dal resto. */
   totp?: string;
+  /** Password precedenti. Sta nel payload, quindi e' cifrato come il resto:
+   *  il server non sa nemmeno che esiste uno storico. */
+  storico?: VoceStorico[];
+  /** Preferito. Sta nel payload e non in una colonna: cosi' il server non
+   *  impara nemmeno quali voci usi di piu'. */
+  preferito?: boolean;
+
+  // --- campi delle carte, cifrati come tutto il resto ---
+  intestatario?: string;
+  numero?: string;
+  scadenza?: string;
+  cvv?: string;
+  pin?: string;
 }
 
 export interface DecryptedItem {
@@ -377,6 +402,17 @@ export async function decryptItem(session: Session, item: ItemOut): Promise<Decr
   };
 }
 
+function aggiornaStorico(precedente: ItemPayload, nuovo: ItemPayload): VoceStorico[] {
+  const vecchia = precedente.password ?? "";
+  const nuova = nuovo.password ?? "";
+  const storico = precedente.storico ?? [];
+  if (!vecchia || vecchia === nuova) return storico;
+  return [{ password: vecchia, cambiata: new Date().toISOString() }, ...storico].slice(
+    0,
+    STORICO_MAX
+  );
+}
+
 /** Una chiave per item, wrappata con SK: permette di ri-cifrare un singolo
  *  item senza toccare gli altri. */
 async function sealItem(session: Session, itemId: string, revision: number, payload: ItemPayload) {
@@ -410,7 +446,11 @@ export async function updateItem(
   payload: ItemPayload
 ): Promise<DecryptedItem> {
   const nextRevision = item.revision + 1;
-  const sealed = await sealItem(session, item.id, nextRevision, payload);
+  // Lo storico lo ricostruisce sempre questa funzione dal valore SALVATO, mai
+  // il modulo che raccoglie le modifiche: se lo gestisse la maschera, bastarebbe
+  // un campo lasciato per sbaglio in un modulo per riscrivere la cronologia.
+  const completo = { ...payload, storico: aggiornaStorico(item.payload, payload) };
+  const sealed = await sealItem(session, item.id, nextRevision, completo);
   const updated = await api.updateItem(item.id, {
     id: item.id,
     item_type: item.itemType,

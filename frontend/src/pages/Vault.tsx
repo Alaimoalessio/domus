@@ -1,13 +1,24 @@
-import { CloudOff, Loader2, LogOut, Plus, Printer, Search, Settings, ShieldCheck, Stethoscope, Trash2, TriangleAlert, Users } from "lucide-react";
+import { ArrowUpDown, CloudOff, Loader2, LogOut, Plus, Printer, Search, Settings, ShieldCheck, Star, Stethoscope, Trash2, TriangleAlert, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { HealthPanel } from "../components/HealthPanel";
+import { descrizione } from "../lib/tipi";
 import { ItemModal } from "../components/ItemModal";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
-import { caricaOffline, deleteItem, syncVault, VAULT_VUOTO, type DecryptedItem, type VaultState } from "../lib/vault";
+import { caricaOffline, deleteItem, syncVault, updateItem, VAULT_VUOTO, type DecryptedItem, type VaultState } from "../lib/vault";
+
+/** Una nota non ha username e una carta nemmeno: mostrare "—" sprecherebbe la
+ *  riga proprio sui tipi dove il nome da solo dice meno. */
+function sottotitolo(item: DecryptedItem): string {
+  const p = item.payload;
+  if (p.username) return p.username;
+  if (p.numero) return `•••• ${p.numero.replace(/\s/g, "").slice(-4)}`;
+  if (p.notes) return p.notes.split("\n")[0].slice(0, 60);
+  return p.url ?? "—";
+}
 
 export default function Vault() {
   const { session, signOut } = useAuth();
@@ -20,6 +31,7 @@ export default function Vault() {
   const [error, setError] = useState("");
   const [needsKit, setNeedsKit] = useState(false);
   const [saluteAperta, setSaluteAperta] = useState(false);
+  const [ordine, setOrdine] = useState<"nome" | "recenti">("nome");
   // Il cursore deve restare stabile fra un refresh e l'altro senza rigenerare
   // la callback, altrimenti l'effetto si riattacca a ogni sincronizzazione.
   const statoRef = useRef<VaultState>(VAULT_VUOTO);
@@ -115,13 +127,46 @@ export default function Vault() {
 
   if (!session) return null;
 
-  const visible = items.filter((i) =>
-    [i.payload.name, i.payload.username, i.payload.url]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(query.toLowerCase())
-  );
+  // I preferiti stanno sempre in cima, qualunque sia l'ordinamento: e' il
+  // motivo per cui li si segna.
+  const visible = items
+    .filter((i) =>
+      [i.payload.name, i.payload.username, i.payload.url]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query.toLowerCase())
+    )
+    .sort((a, b) => {
+      const pa = a.payload.preferito ? 0 : 1;
+      const pb = b.payload.preferito ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      return ordine === "nome"
+        ? a.payload.name.localeCompare(b.payload.name, "it")
+        : new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+
+  const alternaPreferito = async (item: DecryptedItem) => {
+    // Aggiornamento ottimistico: segnare un preferito deve sembrare istantaneo,
+    // non far aspettare una risposta dal server per un asterisco.
+    const invertito = !item.payload.preferito;
+    const precedente = statoRef.current;
+    const ottimistico = {
+      ...precedente,
+      items: precedente.items.map((i) =>
+        i.id === item.id ? { ...i, payload: { ...i.payload, preferito: invertito } } : i
+      ),
+    };
+    statoRef.current = ottimistico;
+    setStato(ottimistico);
+    try {
+      await updateItem(session, item, { ...item.payload, preferito: invertito });
+      void refresh();
+    } catch {
+      statoRef.current = precedente;
+      setStato(precedente);
+    }
+  };
 
   const remove = async (item: DecryptedItem) => {
     if (!window.confirm(`Eliminare "${item.payload.name}"?`)) return;
@@ -191,16 +236,27 @@ export default function Vault() {
               {items.length} voci · decifrate solo su questo dispositivo
             </p>
           </div>
-          {!session.offline && (
+          <div className="flex items-center gap-2">
             <Button
-              onClick={() => {
-                setEditing(null);
-                setModalOpen(true);
-              }}
+              variant="ghost"
+              size="sm"
+              onClick={() => setOrdine(ordine === "nome" ? "recenti" : "nome")}
+              title="Cambia ordinamento"
             >
-              <Plus className="mr-1 h-4 w-4" /> Nuova voce
+              <ArrowUpDown className="mr-1.5 h-3.5 w-3.5" />
+              {ordine === "nome" ? "A-Z" : "Recenti"}
             </Button>
-          )}
+            {!session.offline && (
+              <Button
+                onClick={() => {
+                  setEditing(null);
+                  setModalOpen(true);
+                }}
+              >
+                <Plus className="mr-1 h-4 w-4" /> Nuova voce
+              </Button>
+            )}
+          </div>
         </div>
 
         {session.offline && (
@@ -284,8 +340,11 @@ export default function Vault() {
                 key={item.id}
                 className="group flex items-center gap-4 rounded-xl border border-neutral-800 bg-neutral-900 px-4 py-3 transition hover:border-neutral-700"
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600/15 text-sm font-semibold uppercase text-indigo-400">
-                  {item.payload.name.slice(0, 2)}
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600/15 text-indigo-400">
+                  {(() => {
+                    const Icona = descrizione(item.itemType).icona;
+                    return <Icona className="h-4 w-4" />;
+                  })()}
                 </div>
                 <button
                   onClick={() => {
@@ -295,14 +354,25 @@ export default function Vault() {
                   className="min-w-0 flex-1 text-left"
                 >
                   <div className="truncate font-medium text-neutral-100">{item.payload.name}</div>
-                  <div className="truncate text-sm text-neutral-500">
-                    {item.payload.username || item.payload.url || "—"}
-                  </div>
+                  <div className="truncate text-sm text-neutral-500">{sottotitolo(item)}</div>
                 </button>
                 {/* Il cestino resta visibile di default e si nasconde solo
                     dove esiste un puntatore: su un telefono l'hover non c'e',
                     e con opacity-0 di base non compariva mai — la voce non era
                     cancellabile affatto. */}
+                {!session.offline && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    title={item.payload.preferito ? "Togli dai preferiti" : "Aggiungi ai preferiti"}
+                    onClick={() => alternaPreferito(item)}
+                    className={item.payload.preferito ? "opacity-100" : "opacity-100 md:opacity-0 md:group-hover:opacity-100"}
+                  >
+                    <Star
+                      className={`h-4 w-4 ${item.payload.preferito ? "fill-amber-400 text-amber-400" : "text-neutral-500"}`}
+                    />
+                  </Button>
+                )}
                 {!session.offline && (
                   <Button
                     variant="ghost"
