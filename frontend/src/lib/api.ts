@@ -109,6 +109,17 @@ export interface AdminUser {
   storage_quota_bytes: number;
 }
 
+export interface TotpSetup {
+  secret: string;
+  otpauth_uri: string;
+}
+
+export interface TotpStatus {
+  enabled: boolean;
+  pending: boolean;
+  confirmed_at: string | null;
+}
+
 export interface SessionOut {
   id: string;
   device_label: string;
@@ -126,6 +137,7 @@ export interface MeResponse {
   storage_used_bytes: number;
   storage_quota_bytes: number;
   recovery_configured: boolean;
+  totp_enabled: boolean;
 }
 
 async function toError(res: Response): Promise<ApiError> {
@@ -244,15 +256,42 @@ export class Api {
     );
   }
 
-  login(email: string, authKey: string, deviceLabel: string) {
+  login(email: string, authKey: string, deviceLabel: string, totpCode?: string) {
     return this.json<Tokens>(
       "/auth/login",
       {
         method: "POST",
-        body: JSON.stringify({ email, auth_key: authKey, device_label: deviceLabel }),
+        body: JSON.stringify({
+          email,
+          auth_key: authKey,
+          device_label: deviceLabel,
+          totp_code: totpCode ?? null,
+        }),
       },
       false
     );
+  }
+
+  totpStatus() {
+    return this.json<TotpStatus>("/auth/2fa/status");
+  }
+
+  totpSetup() {
+    return this.json<TotpSetup>("/auth/2fa/setup", { method: "POST" });
+  }
+
+  totpActivate(code: string) {
+    return this.json<void>("/auth/2fa/activate", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    });
+  }
+
+  totpDisable(code: string) {
+    return this.json<void>("/auth/2fa/disable", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    });
   }
 
   me() {

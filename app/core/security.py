@@ -3,6 +3,7 @@ import binascii
 import hashlib
 import hmac
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -123,3 +124,67 @@ def new_refresh_token() -> tuple[str, str]:
 
 def hash_refresh_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+# ============================================================ secondo fattore
+
+_BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+
+def genera_totp_secret(byte: int = 20) -> str:
+    """160 bit, la lunghezza raccomandata da RFC 4226. Base32 senza padding,
+    che e' il formato che le app di autenticazione si aspettano."""
+    grezzo = secrets.token_bytes(byte)
+    bit = "".join(f"{b:08b}" for b in grezzo)
+    return "".join(_BASE32[int(bit[i : i + 5], 2)] for i in range(0, len(bit) - 4, 5))
+
+
+def _base32_decode(secret: str) -> bytes:
+    pulito = "".join(c for c in secret.upper() if c in _BASE32)
+    bit = "".join(f"{_BASE32.index(c):05b}" for c in pulito)
+    return bytes(int(bit[i : i + 8], 2) for i in range(0, len(bit) - 7, 8))
+
+
+def _hotp(chiave: bytes, contatore: int, cifre: int = 6) -> str:
+    mac = hmac.new(chiave, contatore.to_bytes(8, "big"), hashlib.sha1).digest()
+    offset = mac[-1] & 0x0F
+    valore = int.from_bytes(mac[offset : offset + 4], "big") & 0x7FFFFFFF
+    return str(valore % 10**cifre).zfill(cifre)
+
+
+def verifica_totp(
+    secret: str, codice: str, ultimo_contatore: int = 0, finestra: int = 1
+) -> int | None:
+    """Ritorna il contatore accettato, o None. La tolleranza di una finestra
+    copre gli orologi leggermente sfasati; un contatore gia' usato viene
+    rifiutato, cosi' un codice intercettato non si puo' rigiocare."""
+    codice = codice.strip().replace(" ", "")
+    if not codice.isdigit() or len(codice) != 6:
+        return None
+
+    chiave = _base32_decode(secret)
+    if not chiave:
+        return None
+
+    adesso = int(time.time()) // 30
+    for scarto in range(-finestra, finestra + 1):
+        contatore = adesso + scarto
+        if contatore <= ultimo_contatore:
+            continue
+        if hmac.compare_digest(_hotp(chiave, contatore), codice):
+            return contatore
+    return None
+
+
+def uri_otpauth(secret: str, email: str, emittente: str = "Domus") -> str:
+    """L'etichetta e' "emittente:account" con i due punti LETTERALI: sono il
+    separatore previsto dallo schema otpauth, e codificarli in %3A fa mostrare
+    ad alcune app un unico nome incollato invece di emittente e account
+    distinti."""
+    from urllib.parse import quote
+
+    etichetta = f"{quote(emittente, safe='')}:{quote(email, safe='')}"
+    return (
+        f"otpauth://totp/{etichetta}?secret={secret}"
+        f"&issuer={quote(emittente)}&algorithm=SHA1&digits=6&period=30"
+    )

@@ -9,8 +9,10 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import (create_access_token, create_recovery_token,
                                decode_access_token, fake_kdf_salt,
-                               hash_auth_key, hash_refresh_token, needs_rehash,
-                               new_refresh_token, verify_auth_key)
+                               genera_totp_secret, hash_auth_key,
+                               hash_refresh_token, needs_rehash,
+                               new_refresh_token, uri_otpauth, verifica_totp,
+                               verify_auth_key)
 from app.db.models import RefreshToken, User
 from app.deps import DB, CurrentUser, RecoveringUser, audit, bearer, utcnow
 from app.schemas import (ChangeMasterPassword, LoginRequest, LogoutRequest, MeResponse,
@@ -18,7 +20,8 @@ from app.schemas import (ChangeMasterPassword, LoginRequest, LogoutRequest, MeRe
                          RecoveryPreloginRequest, RecoveryPreloginResponse,
                          RecoveryStartRequest, RecoveryStartResponse, RecoverySetup,
                          RecoveryStatus, RefreshRequest, RegisterRequest,
-                         RegisterResponse, SessionOut, TokenResponse)
+                         RegisterResponse, SessionOut, TokenResponse, TotpCode,
+                         TotpSetupResponse, TotpStatus)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -143,6 +146,39 @@ def login(payload: LoginRequest, db: DB, request: Request):
     if user.status != "active":
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"account {user.status}")
 
+    # Il codice si chiede DOPO aver verificato la password: chiederlo prima
+    # significherebbe accettare tentativi di codice da chiunque conosca l'email.
+    if user.totp_confirmed_at is not None:
+        if user.totp_locked_until and user.totp_locked_until > utcnow():
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS, "secondo fattore temporaneamente bloccato"
+            )
+        if not payload.totp_code:
+            # 428: la richiesta e' valida ma manca una condizione. Serve un
+            # codice distinguibile da "credenziali errate", o il client non
+            # saprebbe se chiedere il codice o segnalare un errore.
+            raise HTTPException(
+                status.HTTP_428_PRECONDITION_REQUIRED, "codice del secondo fattore richiesto"
+            )
+        contatore = verifica_totp(
+            user.totp_secret or "", payload.totp_code, user.totp_last_counter
+        )
+        if contatore is None:
+            user.totp_failed += 1
+            if user.totp_failed >= settings.login_max_attempts:
+                user.totp_locked_until = utcnow() + timedelta(
+                    minutes=settings.login_lockout_minutes
+                )
+                user.totp_failed = 0
+            audit(db, request, "auth.totp.fail", user.id)
+            db.commit()
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "codice non valido")
+        # Il contatore accettato viene registrato: lo stesso codice non passa
+        # una seconda volta nella sua finestra.
+        user.totp_last_counter = contatore
+        user.totp_failed = 0
+        user.totp_locked_until = None
+
     if needs_rehash(user.auth_key_hash):
         user.auth_key_hash = hash_auth_key(payload.auth_key)
 
@@ -204,6 +240,63 @@ def logout_all(db: DB, user: CurrentUser, request: Request):
     user.security_stamp = secrets.token_hex(16)  # invalida anche gli access token vivi
     _revoke_all(db, user.id)
     audit(db, request, "auth.logout_all", user.id)
+    db.commit()
+
+
+@router.get("/2fa/status", response_model=TotpStatus)
+def totp_status(user: CurrentUser):
+    return TotpStatus(
+        enabled=user.totp_confirmed_at is not None,
+        pending=user.totp_secret is not None and user.totp_confirmed_at is None,
+        confirmed_at=user.totp_confirmed_at,
+    )
+
+
+@router.post("/2fa/setup", response_model=TotpSetupResponse)
+def totp_setup(db: DB, user: CurrentUser, request: Request):
+    """Prepara un secret ma non attiva nulla: senza la conferma con un codice
+    valido, chi sbaglia a configurare l'app resterebbe chiuso fuori."""
+    if user.totp_confirmed_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "secondo fattore gia' attivo")
+    user.totp_secret = genera_totp_secret()
+    user.totp_last_counter = 0
+    audit(db, request, "auth.totp.setup", user.id)
+    db.commit()
+    return TotpSetupResponse(
+        secret=user.totp_secret, otpauth_uri=uri_otpauth(user.totp_secret, user.email)
+    )
+
+
+@router.post("/2fa/activate", status_code=204)
+def totp_activate(payload: TotpCode, db: DB, user: CurrentUser, request: Request):
+    if user.totp_confirmed_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "secondo fattore gia' attivo")
+    if user.totp_secret is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "nessuna configurazione in corso")
+
+    contatore = verifica_totp(user.totp_secret, payload.code, user.totp_last_counter)
+    if contatore is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "codice non valido")
+
+    user.totp_confirmed_at = utcnow()
+    user.totp_last_counter = contatore
+    audit(db, request, "auth.totp.activate", user.id)
+    db.commit()
+
+
+@router.post("/2fa/disable", status_code=204)
+def totp_disable(payload: TotpCode, db: DB, user: CurrentUser, request: Request):
+    """Disattivare richiede un codice valido: chi trova una sessione aperta non
+    deve poter togliere il secondo fattore con un clic."""
+    if user.totp_confirmed_at is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "secondo fattore non attivo")
+    if verifica_totp(user.totp_secret or "", payload.code, user.totp_last_counter) is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "codice non valido")
+
+    user.totp_secret = None
+    user.totp_confirmed_at = None
+    user.totp_last_counter = 0
+    audit(db, request, "auth.totp.disable", user.id)
     db.commit()
 
 
@@ -289,6 +382,7 @@ def me(user: CurrentUser):
         storage_used_bytes=user.storage_used_bytes,
         storage_quota_bytes=user.storage_quota_bytes,
         recovery_configured=user.recovery_auth_hash is not None,
+        totp_enabled=user.totp_confirmed_at is not None,
     )
 
 

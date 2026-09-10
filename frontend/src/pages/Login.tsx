@@ -1,4 +1,4 @@
-import { CheckCircle2, CloudOff, Fingerprint, Loader2 } from "lucide-react";
+import { CheckCircle2, CloudOff, Fingerprint, Loader2, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -7,7 +7,7 @@ import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
 import { leggiRecord, sblocca, type RecordBiometrico } from "../lib/biometric";
 import { eProblemaDiRete } from "../lib/offline";
-import { login, loginOffline } from "../lib/vault";
+import { ServeCodice, login, loginOffline } from "../lib/vault";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -17,6 +17,8 @@ export default function Login() {
   const [offline, setOffline] = useState(false);
   const [biometria, setBiometria] = useState<RecordBiometrico | null>(null);
   const [sbloccando, setSbloccando] = useState(false);
+  const [codice, setCodice] = useState("");
+  const [serveCodice, setServeCodice] = useState(false);
 
   useEffect(() => {
     void leggiRecord().then(setBiometria);
@@ -51,8 +53,15 @@ export default function Login() {
     try {
       let sessione;
       try {
-        sessione = await login(email, password);
+        sessione = await login(email, password, codice || undefined);
       } catch (err) {
+        // Password giusta, manca il codice: si mostra il campo invece di
+        // dichiarare un errore che non c'e'.
+        if (err instanceof ServeCodice) {
+          setServeCodice(true);
+          setBusy(false);
+          return;
+        }
         // Solo un guasto di RETE fa ripiegare sulla copia locale. Un 401 no:
         // le credenziali sono sbagliate, e aprire comunque il vault dalla
         // cache sarebbe il modo piu' rapido di annullare l'autenticazione.
@@ -148,8 +157,26 @@ export default function Login() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
+        {serveCodice && (
+          <div className="space-y-2">
+            <label htmlFor="codice" className="flex items-center gap-1.5 text-sm font-medium text-neutral-300">
+              <ShieldCheck className="h-3.5 w-3.5 text-indigo-400" />
+              Codice dell'app di autenticazione
+            </label>
+            <input
+              id="codice"
+              value={codice}
+              onChange={(e) => setCodice(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              placeholder="000000"
+              className="h-11 w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 text-center font-mono text-lg tracking-[0.4em] text-neutral-100 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
+            />
+          </div>
+        )}
         <ErrorNote>{error}</ErrorNote>
-        <Button type="submit" disabled={busy} className="w-full">
+        <Button type="submit" disabled={busy || (serveCodice && codice.length !== 6)} className="w-full">
           {busy ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

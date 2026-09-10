@@ -668,3 +668,95 @@ def test_non_si_revocano_le_sessioni_altrui(clients, app_ctx):
     assert sessioni, "alice deve avere almeno una sessione"
     r = http.delete(f"/api/v1/auth/sessions/{sessioni[0]['id']}", headers=bob.auth_headers)
     assert r.status_code == 404
+
+
+# ========================================================= secondo fattore
+
+def _codice(secret: str, scarto: int = 0) -> str:
+    import time
+    from app.core.security import _base32_decode, _hotp
+    return _hotp(_base32_decode(secret), int(time.time()) // 30 + scarto)
+
+
+def test_secondo_fattore_ciclo_completo(clients, app_ctx):
+    http, _ = app_ctx
+    alice, _ = clients
+    from tests.client import VaultClient, b64, derive_master_key, subkey, unb64
+
+    utente = nuovo_utente(http, alice, "nadia@family.local", "password-di-nadia-2026")
+    intestazioni = utente.auth_headers
+
+    setup = http.post("/api/v1/auth/2fa/setup", headers=intestazioni).json()
+    assert len(setup["secret"]) == 32
+    assert setup["otpauth_uri"].startswith("otpauth://totp/Domus:")
+    assert setup["secret"] in setup["otpauth_uri"]
+
+    # finche' non e' confermato, il login non deve chiedere nulla
+    params = http.post("/api/v1/auth/prelogin", json={"email": "nadia@family.local"}).json()
+    mk = derive_master_key("password-di-nadia-2026", unb64(params["kdf_salt"]), params)
+    chiave = b64(subkey(mk, "pv1:auth"))
+    assert http.post("/api/v1/auth/login", json={"email": "nadia@family.local", "auth_key": chiave}).status_code == 200
+
+    assert http.post("/api/v1/auth/2fa/activate", headers=intestazioni, json={"code": "000000"}).status_code == 401
+    assert http.post("/api/v1/auth/2fa/activate", headers=intestazioni,
+                     json={"code": _codice(setup["secret"])}).status_code == 204
+
+    # ora il login senza codice deve fermarsi, in modo distinguibile
+    r = http.post("/api/v1/auth/login", json={"email": "nadia@family.local", "auth_key": chiave})
+    assert r.status_code == 428, "il client deve poter distinguere 'serve il codice' da 'credenziali errate'"
+
+    assert http.post("/api/v1/auth/login", json={
+        "email": "nadia@family.local", "auth_key": chiave, "totp_code": "123456"}).status_code == 401
+
+    # Il codice usato per attivare e' gia' stato consumato: la protezione
+    # anti-replay vale sul secret, non sulla singola operazione. Per entrare
+    # serve il codice della finestra successiva — che e' esattamente cio' che
+    # l'app mostrera' trenta secondi dopo.
+    assert http.post("/api/v1/auth/login", json={
+        "email": "nadia@family.local", "auth_key": chiave,
+        "totp_code": _codice(setup["secret"])}).status_code == 401, "codice gia' consumato"
+
+    buono = _codice(setup["secret"], 1)
+    assert http.post("/api/v1/auth/login", json={
+        "email": "nadia@family.local", "auth_key": chiave, "totp_code": buono}).status_code == 200
+
+    # lo stesso codice non deve passare due volte nella sua finestra
+    assert http.post("/api/v1/auth/login", json={
+        "email": "nadia@family.local", "auth_key": chiave, "totp_code": buono}).status_code == 401
+
+    assert http.get("/api/v1/auth/me", headers=intestazioni).json()["totp_enabled"] is True
+
+
+def test_password_sbagliata_non_arriva_al_secondo_fattore(clients, app_ctx):
+    """Il codice si chiede solo dopo la password: altrimenti chiunque conosca
+    l'email potrebbe provare codici a raffica."""
+    http, _ = app_ctx
+    alice, _ = clients
+    from tests.client import b64
+
+    r = http.post("/api/v1/auth/login", json={
+        "email": "nadia@family.local", "auth_key": b64(os.urandom(32)), "totp_code": "000000"})
+    assert r.status_code == 401
+    assert "credenziali" in r.json()["detail"]
+
+
+def test_disattivare_il_secondo_fattore_richiede_un_codice(clients, app_ctx):
+    http, _ = app_ctx
+    alice, _ = clients
+    from tests.client import VaultClient
+
+    c = VaultClient(http)
+    c.login("nadia@family.local", "password-di-nadia-2026") if False else None
+    # si riusa la sessione gia' aperta dal test precedente tramite un nuovo setup
+    utente = nuovo_utente(http, alice, "olga@family.local", "password-di-olga-2026")
+    setup = http.post("/api/v1/auth/2fa/setup", headers=utente.auth_headers).json()
+    http.post("/api/v1/auth/2fa/activate", headers=utente.auth_headers,
+              json={"code": _codice(setup["secret"])})
+
+    assert http.post("/api/v1/auth/2fa/disable", headers=utente.auth_headers,
+                     json={"code": "000000"}).status_code == 401
+    assert http.get("/api/v1/auth/me", headers=utente.auth_headers).json()["totp_enabled"] is True
+
+    assert http.post("/api/v1/auth/2fa/disable", headers=utente.auth_headers,
+                     json={"code": _codice(setup["secret"], 1)}).status_code == 204
+    assert http.get("/api/v1/auth/me", headers=utente.auth_headers).json()["totp_enabled"] is False

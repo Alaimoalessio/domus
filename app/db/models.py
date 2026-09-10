@@ -56,6 +56,19 @@ class User(Base):
     failed_logins: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(UtcDateTime)
 
+    # --- secondo fattore sull'accesso a Domus -----------------------------
+    # Il seed TOTP e' una credenziale di autenticazione, non un dato del vault:
+    # il server DEVE poterlo leggere per verificare i codici, esattamente come
+    # legge l'hash di auth_key. Non intacca lo zero-knowledge, ma va detto che
+    # chi ruba il database ruba anche i seed e quindi aggira il secondo fattore.
+    totp_secret: Mapped[str | None] = mapped_column(String(64))
+    totp_confirmed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    #: ultimo contatore accettato: un codice gia' usato non si riusa entro la
+    #: sua finestra, altrimenti chi lo intercetta ha 30 secondi per rigiocarlo
+    totp_last_counter: Mapped[int] = mapped_column(BigInteger, default=0)
+    totp_failed: Mapped[int] = mapped_column(Integer, default=0)
+    totp_locked_until: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
     # --- kit di emergenza -------------------------------------------------
     # SK wrappata una seconda volta, sotto una chiave derivata dal codice di
     # recupero stampato su carta. Il codice non arriva mai al server: qui c'e'

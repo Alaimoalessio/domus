@@ -14,7 +14,7 @@
  * UPDATE: si ri-wrappa SK, non si ricifra il vault.
  */
 
-import { api, type FileOut, type ItemOut, type Tokens } from "./api";
+import { ApiError, api, type FileOut, type ItemOut, type Tokens } from "./api";
 import { leggiSnapshot, salvaSnapshot, type Snapshot } from "./offline";
 import {
   type Bytes,
@@ -82,6 +82,26 @@ export interface DecryptedFile {
 
 const newId = () => window.crypto.randomUUID().replace(/-/g, "");
 
+/** Un'etichetta riconoscibile nell'elenco dei dispositivi: "web" su tre righe
+ *  non aiuta a capire quale sia il telefono e quale il portatile. */
+function etichettaDispositivo(): string {
+  const ua = navigator.userAgent;
+  const sistema =
+    /Android/i.test(ua) ? "Android"
+    : /iPhone|iPad/i.test(ua) ? "iOS"
+    : /Macintosh/i.test(ua) ? "Mac"
+    : /Windows/i.test(ua) ? "Windows"
+    : /Linux/i.test(ua) ? "Linux"
+    : "sconosciuto";
+  const browser =
+    /Edg\//.test(ua) ? "Edge"
+    : /Chrome\//.test(ua) ? "Chrome"
+    : /Safari\//.test(ua) ? "Safari"
+    : /Firefox\//.test(ua) ? "Firefox"
+    : "browser";
+  return `${browser} su ${sistema}`.slice(0, 64);
+}
+
 /** SK sbloccata dalla KEK. Da qui in poi il vault e' leggibile. */
 async function unwrapSk(masterKey: Bytes, tokens: Tokens): Promise<Bytes> {
   const kek = await subkey(masterKey, "pv1:kek");
@@ -112,11 +132,36 @@ export async function register(email: string, password: string) {
   });
 }
 
-export async function login(email: string, password: string): Promise<Session> {
+/** Il server risponde 428 quando la password e' giusta ma manca il codice:
+ *  serve un errore distinguibile, o la schermata non saprebbe se mostrare il
+ *  campo del codice o dire "credenziali errate". */
+export class ServeCodice extends Error {
+  constructor() {
+    super("Serve il codice del secondo fattore.");
+    this.name = "ServeCodice";
+  }
+}
+
+export async function login(
+  email: string,
+  password: string,
+  totpCode?: string
+): Promise<Session> {
   // Il salt lo decide il server, non l'email: e' casuale e per-utente.
   const params = await api.prelogin(email);
   const mk = await deriveMasterKey(password, base64UrlToBuffer(params.kdf_salt), params);
-  const tokens = await api.login(email, bufferToBase64Url(await subkey(mk, "pv1:auth")), "web");
+  let tokens: Tokens;
+  try {
+    tokens = await api.login(
+      email,
+      bufferToBase64Url(await subkey(mk, "pv1:auth")),
+      etichettaDispositivo(),
+      totpCode
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 428) throw new ServeCodice();
+    throw err;
+  }
   api.setTokens(tokens);
   const sk = await unwrapSk(mk, tokens);
 

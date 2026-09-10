@@ -62,6 +62,8 @@ class LoginRequest(BaseModel):
     email: AccountEmail
     auth_key: str = Field(min_length=32, max_length=256)
     device_label: str = Field(default="", max_length=64)
+    #: richiesto solo se l'account ha il secondo fattore attivo
+    totp_code: str | None = Field(default=None, max_length=8)
 
 
 class TokenResponse(Secure):
@@ -156,6 +158,24 @@ class RecoveryComplete(Secure):
     new_protected_key_nonce: bytes
 
 
+class TotpSetupResponse(Secure):
+    """Il secret in chiaro esce UNA volta sola, al momento della configurazione:
+    da li' in poi il server lo usa solo per verificare i codici."""
+
+    secret: str
+    otpauth_uri: str
+
+
+class TotpCode(BaseModel):
+    code: str = Field(min_length=6, max_length=8)
+
+
+class TotpStatus(BaseModel):
+    enabled: bool
+    pending: bool
+    confirmed_at: datetime | None
+
+
 class SessionOut(BaseModel):
     """Un dispositivo collegato. Non espone il token, nemmeno in forma
     troncata: serve a riconoscere la sessione, non a ricostruirla."""
@@ -177,6 +197,7 @@ class MeResponse(BaseModel):
     storage_used_bytes: int
     storage_quota_bytes: int
     recovery_configured: bool
+    totp_enabled: bool
 
 
 # --------------------------------------------------------------------------- vault
