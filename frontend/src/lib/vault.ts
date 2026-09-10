@@ -48,6 +48,14 @@ export interface Session {
   offline: boolean;
 }
 
+/** Un campo aggiunto dall'utente: domanda di sicurezza, numero cliente, PIN
+ *  secondario. `nascosto` lo fa comportare come una password nella maschera. */
+export interface CampoPersonalizzato {
+  nome: string;
+  valore: string;
+  nascosto: boolean;
+}
+
 /** Una password sostituita, con la data del cambio. */
 export interface VoceStorico {
   password: string;
@@ -75,6 +83,8 @@ export interface ItemPayload {
   /** Preferito. Sta nel payload e non in una colonna: cosi' il server non
    *  impara nemmeno quali voci usi di piu'. */
   preferito?: boolean;
+  /** Campi liberi, cifrati come tutto il resto. */
+  campi?: CampoPersonalizzato[];
 
   // --- campi delle carte, cifrati come tutto il resto ---
   intestatario?: string;

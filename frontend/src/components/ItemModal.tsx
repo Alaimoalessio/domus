@@ -8,13 +8,15 @@ import type { DecryptedItem, ItemPayload, Session } from "../lib/vault";
 import { api } from "../lib/api";
 import { createItem, decryptFileMeta, downloadFile, updateItem, uploadFile } from "../lib/vault";
 import type { FileMeta } from "../lib/vault";
+import { leggiPreferenze } from "../lib/preferenze";
 import { descrizione, ORDINE_TIPI, TIPI, type TipoVoce } from "../lib/tipi";
+import { CustomFields } from "./CustomFields";
 import { PasswordGenerator } from "./PasswordGenerator";
 import { TotpDisplay } from "./TotpDisplay";
 import { Button } from "./ui/button";
 
 const EMPTY: ItemPayload = { name: "", username: "", password: "", url: "", notes: "", totp: "" };
-const CLIPBOARD_TTL = 20_000;
+
 
 export function ItemModal({
   session,
@@ -76,12 +78,15 @@ export function ItemModal({
   const set = (key: keyof ItemPayload) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setDraft((d) => ({ ...d, [key]: e.target.value }));
 
-  /** La clipboard e' leggibile da qualunque app: si svuota da sola dopo 20s. */
+  /** La clipboard e' leggibile da qualunque app: si svuota da sola dopo il
+   *  tempo scelto nelle impostazioni. */
   const copyPassword = async () => {
     if (!draft.password) return;
+    const secondi = leggiPreferenze().secondiClipboard;
     await navigator.clipboard.writeText(draft.password);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+    if (secondi === 0) return;
     setTimeout(async () => {
       try {
         const current = await navigator.clipboard.readText();
@@ -91,15 +96,21 @@ export function ItemModal({
         // "copia" altrui che lasciare una password in giro.
         await navigator.clipboard.writeText("").catch(() => {});
       }
-    }, CLIPBOARD_TTL);
+    }, secondi * 1000);
   };
 
   const save = async () => {
     setBusy("Cifratura...");
     setError("");
     try {
-      if (item) await updateItem(session, item, draft);
-      else await createItem(session, tipo, draft);
+      // I campi lasciati completamente vuoti non si salvano: un "Aggiungi"
+      // premuto per sbaglio non deve lasciare righe fantasma nella voce.
+      const ripulito = {
+        ...draft,
+        campi: (draft.campi ?? []).filter((c) => c.nome.trim() || c.valore.trim()),
+      };
+      if (item) await updateItem(session, item, ripulito);
+      else await createItem(session, tipo, ripulito);
       onSaved();
       onClose();
     } catch (err) {
@@ -272,7 +283,9 @@ export function ItemModal({
               />
             )}
             <p className="text-xs text-neutral-500">
-              La clipboard viene svuotata automaticamente dopo 20 secondi.
+              {leggiPreferenze().secondiClipboard === 0
+                ? "La clipboard non viene svuotata automaticamente."
+                : `La clipboard viene svuotata automaticamente dopo ${leggiPreferenze().secondiClipboard} secondi.`}
             </p>
           </div>
           )}
@@ -343,6 +356,12 @@ export function ItemModal({
               className="w-full resize-none rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
             />
           </div>
+
+          <CustomFields
+            campi={draft.campi ?? []}
+            readOnly={readOnly}
+            onChange={(campi) => setDraft((d) => ({ ...d, campi }))}
+          />
 
           {item && (
             <div className="space-y-2 border-t border-neutral-800 pt-4">

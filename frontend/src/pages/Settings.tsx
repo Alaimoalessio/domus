@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import { BiometricPanel } from "../components/BiometricPanel";
 import { ExportPanel } from "../components/ExportPanel";
 import { ImportPanel } from "../components/ImportPanel";
+import { PreferencesPanel } from "../components/PreferencesPanel";
 import { SessionsPanel } from "../components/SessionsPanel";
 import { TwoFactorPanel } from "../components/TwoFactorPanel";
 import { TrashPanel } from "../components/TrashPanel";
@@ -116,6 +117,11 @@ export default function Settings() {
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-100">Cestino</h2>
           <TrashPanel session={session} />
+        </section>
+
+        <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-100">Sicurezza del dispositivo</h2>
+          <PreferencesPanel />
         </section>
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">

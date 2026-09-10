@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { api } from "../lib/api";
+import { leggiPreferenze, osservaPreferenze } from "../lib/preferenze";
 import type { Session } from "../lib/vault";
 
 interface AuthContextType {
@@ -28,7 +29,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const AUTO_LOCK_TIMEOUT = 10 * 60 * 1000;
+
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   // SK e token vivono SOLO qui, in memoria. Niente localStorage, niente
@@ -37,6 +38,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [email, setEmail] = useState<string | null>(null);
   const [lockedOut, setLockedOut] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [minutiBlocco, setMinutiBlocco] = useState(() => leggiPreferenze().minutiBlocco);
+
+  // Cambiare il timeout deve avere effetto subito, non al prossimo accesso.
+  useEffect(() => osservaPreferenze((p) => setMinutiBlocco(p.minutiBlocco)), []);
 
   const signOut = useCallback((message?: string) => {
     setSession(null);
@@ -52,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setNotice(null);
   }, []);
 
-  // Auto-lock: dopo 10 minuti di inattivita' la SK sparisce dalla RAM.
+  // Auto-lock: dopo il periodo scelto, la SK sparisce dalla RAM.
   useEffect(() => {
     if (!session) return;
 
@@ -62,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       timeoutId = window.setTimeout(() => {
         setLockedOut(true);
         signOut();
-      }, AUTO_LOCK_TIMEOUT);
+      }, minutiBlocco * 60_000);
     };
 
     const events = ["mousemove", "keydown", "touchstart", "click", "scroll"] as const;
@@ -73,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(timeoutId);
       events.forEach((event) => window.removeEventListener(event, resetTimer));
     };
-  }, [session, signOut]);
+  }, [session, signOut, minutiBlocco]);
 
   const value = useMemo(
     () => ({
