@@ -1,6 +1,8 @@
 import { Check, Copy, Download, Eye, EyeOff, FileText, Loader2, Paperclip, Trash2, Wand2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { useModaleTastiera } from "../lib/useModaleTastiera";
+
 import type { FileOut } from "../lib/api";
 import type { DecryptedItem, ItemPayload, Session } from "../lib/vault";
 import { api } from "../lib/api";
@@ -39,6 +41,7 @@ export function ItemModal({
   // l'elenco mostrava solo "244 KB", che non dice nulla su cosa sia il file.
   const [nomi, setNomi] = useState<Record<string, FileMeta>>({});
   const fileInput = useRef<HTMLInputElement>(null);
+  const contenitore = useModaleTastiera(onClose);
 
   useEffect(() => {
     setDraft(item?.payload ?? EMPTY);
@@ -148,8 +151,22 @@ export function ItemModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      onMouseDown={(e) => {
+        // Clic fuori dalla modale la chiude, ma solo se il gesto e' iniziato
+        // fuori: altrimenti trascinare una selezione dal testo verso il bordo
+        // chiuderebbe la finestra e farebbe perdere quanto scritto.
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={contenitore}
+        role="dialog"
+        aria-modal="true"
+        aria-label={readOnly ? "Voce in sola lettura" : item ? "Modifica voce" : "Nuova voce"}
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl"
+      >
         <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-4">
           <h2 className="text-lg font-semibold text-neutral-100">
             {readOnly ? "Voce (sola lettura)" : item ? "Modifica voce" : "Nuova voce"}

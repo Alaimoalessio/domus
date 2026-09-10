@@ -21,6 +21,7 @@ export default function Vault() {
   // Il cursore deve restare stabile fra un refresh e l'altro senza rigenerare
   // la callback, altrimenti l'effetto si riattacca a ogni sincronizzazione.
   const statoRef = useRef<VaultState>(VAULT_VUOTO);
+  const campoRicerca = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<DecryptedItem | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -57,6 +58,39 @@ export default function Vault() {
   useEffect(() => {
     void refresh(true);
   }, [refresh]);
+
+  // Scorciatoie da tastiera. "/" per cercare e' la convenzione del web; il
+  // tasto va ignorato mentre si scrive, o non si potrebbe piu' digitare una
+  // barra dentro un campo.
+  useEffect(() => {
+    const suTasto = (e: KeyboardEvent) => {
+      const dentroUnCampo =
+        e.target instanceof HTMLElement &&
+        (e.target.tagName === "INPUT" ||
+          e.target.tagName === "TEXTAREA" ||
+          e.target.isContentEditable);
+
+      if (e.key === "Escape" && dentroUnCampo && e.target === campoRicerca.current) {
+        setQuery("");
+        campoRicerca.current?.blur();
+        return;
+      }
+      // Con una modale aperta il focus e' confinato li' dentro, ma su un
+      // pulsante "n" passerebbe comunque e aprirebbe una seconda modale sopra.
+      if (dentroUnCampo || modalOpen || e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (e.key === "/") {
+        e.preventDefault();
+        campoRicerca.current?.focus();
+      } else if (e.key.toLowerCase() === "n" && !session?.offline) {
+        e.preventDefault();
+        setEditing(null);
+        setModalOpen(true);
+      }
+    };
+    document.addEventListener("keydown", suTasto);
+    return () => document.removeEventListener("keydown", suTasto);
+  }, [session, modalOpen]);
 
   // Le modifiche fatte su un altro dispositivo arrivano quando la scheda torna
   // in primo piano: un polling continuo terrebbe sveglio il telefono per nulla.
@@ -111,11 +145,19 @@ export default function Vault() {
           <div className="relative order-last w-full sm:order-none sm:ml-auto sm:w-auto sm:max-w-xs sm:flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-600" />
             <input
+              ref={campoRicerca}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Cerca..."
-              className="h-10 w-full rounded-lg border border-neutral-800 bg-neutral-900 pl-9 pr-3 text-base text-neutral-100 outline-none focus:border-indigo-500 sm:h-9 sm:text-sm"
+              className="h-10 w-full rounded-lg border border-neutral-800 bg-neutral-900 pl-9 pr-9 text-base text-neutral-100 outline-none focus:border-indigo-500 sm:h-9 sm:text-sm"
             />
+            {/* Il suggerimento sparisce appena si scrive: a quel punto ha gia'
+                fatto il suo lavoro e occuperebbe solo spazio. */}
+            {query === "" && (
+              <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-neutral-800 px-1.5 py-0.5 font-mono text-xs text-neutral-600 sm:block">
+                /
+              </kbd>
+            )}
           </div>
           {session.isAdmin && !session.offline && (
             <Link
