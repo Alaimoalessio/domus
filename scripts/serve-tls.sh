@@ -23,5 +23,6 @@ chmod 600 "$CERT_DIR/$HOST.key"
 echo "https://$HOST:$PORT"
 exec .venv/bin/python -m uvicorn app.main:app \
     --host 0.0.0.0 --port "$PORT" \
+    --no-server-header \
     --ssl-certfile "$CERT_DIR/$HOST.crt" \
     --ssl-keyfile "$CERT_DIR/$HOST.key"

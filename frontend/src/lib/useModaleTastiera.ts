@@ -38,7 +38,12 @@ export function useModaleTastiera(onClose: () => void) {
   // rimonterebbe di continuo e rimetterebbe il focus sul primo campo a ogni
   // carattere digitato — scrivere nelle note diventerebbe impossibile.
   const chiudi = useRef(onClose);
-  chiudi.current = onClose;
+  // L'aggiornamento va in un effetto senza dipendenze e non nel corpo del
+  // componente: scrivere in una ref durante il render e' un effetto collaterale
+  // in fase di rendering, che React non garantisce venga eseguito una volta sola.
+  useEffect(() => {
+    chiudi.current = onClose;
+  });
 
   useEffect(() => {
     const precedente = document.activeElement as HTMLElement | null;
@@ -85,7 +90,6 @@ export function useModaleTastiera(onClose: () => void) {
       precedente?.focus?.();
     };
     // Volutamente una sola volta: si monta con la modale e si smonta con lei.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return contenitore;

@@ -11,10 +11,22 @@ def _normalize_email(v: str) -> str:
 # Identificativo di account, non indirizzo di consegna: il server non invia
 # posta. Volutamente NON si usa EmailStr, che rifiuta i domini special-use
 # (.local, .lan, .home) — cioe' esattamente quelli di una rete domestica.
+#
+# L'insieme dei caratteri e' una lista di cio' che e' ammesso e non di cio' che
+# e' vietato: il vecchio schema [^@\s]+ accettava <img src=x onerror=...>@x.it,
+# perche' l'unica cosa che escludeva erano chiocciola e spazi. Oggi quell'email
+# non finisce in nessun punto che interpreti HTML — l'ho verificato — ma
+# lasciarcela entrare significa affidare la sicurezza a dove NON viene mostrata,
+# che e' una proprieta' che una funzione futura puo' cancellare senza
+# accorgersene. I caratteri ammessi coprono tutto cio' che compare in un
+# indirizzo reale.
 AccountEmail = Annotated[
     str,
     StringConstraints(
-        min_length=3, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+        min_length=3,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?"
+        r"(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$",
     ),
     AfterValidator(_normalize_email),
 ]

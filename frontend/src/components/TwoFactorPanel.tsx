@@ -188,21 +188,42 @@ function Errore({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** QR disegnato in locale: il secret non deve passare da un generatore
- *  esterno, e nemmeno da un'immagine remota. */
+/**
+ * QR disegnato in locale: il secret non deve passare da un generatore esterno,
+ * ne' da un'immagine remota.
+ *
+ * L'SVG viene costruito come elementi React a partire dalla matrice di moduli,
+ * NON iniettato con dangerouslySetInnerHTML. La libreria oggi produce solo
+ * forme geometriche e non riproduce l'input — l'ho verificato — ma iniettare
+ * HTML prodotto da una dipendenza significa fidarsi di ogni sua versione
+ * futura, e qui dentro passa un URI che contiene un indirizzo email scelto
+ * dall'utente. Costruendo il path da soli quella fiducia non serve piu'.
+ */
 function Qr({ valore }: { valore: string }) {
-  const svg = useMemo(() => {
+  const { d, lato } = useMemo(() => {
     const q = qrcode(0, "M");
     q.addData(valore);
     q.make();
-    return q.createSvgTag({ cellSize: 5, margin: 0, scalable: true });
+    const n = q.getModuleCount();
+    let percorso = "";
+    for (let riga = 0; riga < n; riga++) {
+      for (let colonna = 0; colonna < n; colonna++) {
+        if (q.isDark(riga, colonna)) percorso += `M${colonna} ${riga}h1v1h-1z`;
+      }
+    }
+    return { d: percorso, lato: n };
   }, [valore]);
 
   return (
-    <div
-      className="h-48 w-48 [&>svg]:h-full [&>svg]:w-full"
+    <svg
+      viewBox={`0 0 ${lato} ${lato}`}
+      className="h-48 w-48"
+      shapeRendering="crispEdges"
+      role="img"
       aria-label="Codice QR per l'app di autenticazione"
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    >
+      <rect width={lato} height={lato} fill="#ffffff" />
+      <path d={d} fill="#000000" />
+    </svg>
   );
 }

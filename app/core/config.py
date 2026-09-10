@@ -10,6 +10,10 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path("./data")
     cors_origins: list[str] = ["http://localhost:5173"]
+    #: cartella con il frontend compilato; se esiste, il backend la serve
+    frontend_dir: Path = Path("./frontend/dist")
+    #: /docs e /openapi.json: utili in sviluppo, ricognizione gratuita altrove
+    expose_docs: bool = False
 
     jwt_secret: str = ""
     access_token_minutes: int = 15

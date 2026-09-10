@@ -16,7 +16,10 @@ export function parseCsv(testo: string): string[][] {
   let campo = "";
   let traVirgolette = false;
 
-  const testoNorm = testo.replace(/^﻿/, ""); // BOM di Excel
+  // \uFEFF esplicito e non il carattere letterale: un BOM scritto nel sorgente
+  // e' invisibile, e basta un editor che normalizza il file per farlo sparire
+  // insieme alla protezione che dava.
+  const testoNorm = testo.replace(/^\uFEFF/, "");
 
   for (let i = 0; i < testoNorm.length; i++) {
     const c = testoNorm[i];
