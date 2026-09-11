@@ -24,3 +24,6 @@ __pycache__/
 
 # build del frontend
 frontend/dist/
+
+# binari compilati (dmg/apk): si rigenerano
+/release/

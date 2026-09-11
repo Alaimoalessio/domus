@@ -7,6 +7,7 @@ import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
 import { leggiRecord, sblocca, type RecordBiometrico } from "../lib/biometric";
 import { eProblemaDiRete } from "../lib/offline";
+import { dimenticaServer, eAppNativa, leggiServer } from "../lib/server";
 import { ServeCodice, login, loginOffline } from "../lib/vault";
 
 export default function Login() {
@@ -95,6 +96,21 @@ export default function Login() {
               Ho dimenticato la Master Password
             </Link>
           </div>
+          {eAppNativa() && (
+            <div className="text-xs text-neutral-600">
+              Server: {leggiServer()?.replace(/^https?:\/\//, "")}{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  dimenticaServer();
+                  window.location.reload();
+                }}
+                className="text-neutral-500 underline-offset-2 hover:text-neutral-300 hover:underline"
+              >
+                cambia
+              </button>
+            </div>
+          )}
         </div>
       }
     >

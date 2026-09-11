@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -6,8 +6,10 @@ import Admin from "./pages/Admin";
 import Login from "./pages/Login";
 import Recovery from "./pages/Recovery";
 import Register from "./pages/Register";
+import ServerSetup from "./pages/ServerSetup";
 import Settings from "./pages/Settings";
 import Vault from "./pages/Vault";
+import { eAppNativa, leggiServer } from "./lib/server";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -16,6 +18,11 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  // Nell'app nativa niente funziona finche' non si sa a quale server
+  // parlare: la schermata di collegamento precede tutto il resto.
+  const [server, setServer] = useState(() => (eAppNativa() ? leggiServer() : "web"));
+  if (!server) return <ServerSetup onDone={() => setServer(leggiServer())} />;
+
   return (
     <AuthProvider>
       <BrowserRouter>

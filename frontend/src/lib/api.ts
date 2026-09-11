@@ -3,7 +3,10 @@
  * vede solo ciphertext opaco, esattamente come il server.
  */
 
-const BASE = "/api/v1";
+import { baseApi } from "./server";
+
+/** Valutato a ogni chiamata: nell'app nativa il server e' configurabile. */
+const BASE = () => baseApi();
 
 export class ApiError extends Error {
   constructor(
@@ -188,7 +191,7 @@ export class Api {
   private async raw(path: string, init: RequestInit, auth: boolean): Promise<Response> {
     const headers = new Headers(init.headers);
     if (auth && this.accessToken) headers.set("Authorization", `Bearer ${this.accessToken}`);
-    return fetch(`${BASE}${path}`, { ...init, headers });
+    return fetch(`${BASE()}${path}`, { ...init, headers });
   }
 
   /** L'access token vive 15 minuti: un 401 su una sessione viva significa
@@ -352,7 +355,7 @@ export class Api {
 
   async recoveryComplete(recoveryToken: string, body: unknown): Promise<Tokens> {
     // Token con scope "recovery": non passa dal refresh, vale una volta sola.
-    const res = await fetch(`${BASE}/auth/recovery/complete`, {
+    const res = await fetch(`${BASE()}/auth/recovery/complete`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
