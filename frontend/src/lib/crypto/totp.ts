@@ -16,18 +16,68 @@ const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 export class InvalidSecret extends Error {}
 
+export type AlgoritmoTotp = "SHA-1" | "SHA-256" | "SHA-512";
+
+export interface ParametriTotp {
+  secret: string;
+  digits: number;
+  period: number;
+  algorithm: AlgoritmoTotp;
+  /** Dal label/issuer dell'URI otpauth, quando c'e': utile per il nome della voce. */
+  issuer?: string;
+  account?: string;
+}
+
+const ALGORITMI: Record<string, AlgoritmoTotp> = {
+  SHA1: "SHA-1",
+  SHA256: "SHA-256",
+  SHA512: "SHA-512",
+};
+
 /**
  * Accetta sia il secret base32 nudo sia l'URI otpauth:// completo: chi
- * configura il 2FA di solito ha sottomano il secondo.
+ * configura il 2FA di solito ha sottomano il secondo. Dall'URI si leggono
+ * anche cifre, periodo e algoritmo: quasi tutti i siti usano 6/30/SHA1, ma
+ * chi non lo fa produrrebbe codici sempre sbagliati senza alcun errore.
  */
-export function normalizeTotpSecret(input: string): string {
-  let value = input.trim();
-  if (value.toLowerCase().startsWith("otpauth://")) {
-    const secret = new URL(value).searchParams.get("secret");
-    if (!secret) throw new InvalidSecret("URI otpauth senza parametro secret");
-    value = secret;
+export function parametriTotp(input: string): ParametriTotp {
+  const value = input.trim();
+  const base: ParametriTotp = { secret: "", digits: 6, period: 30, algorithm: "SHA-1" };
+  if (!value.toLowerCase().startsWith("otpauth://")) {
+    return { ...base, secret: value.toUpperCase().replace(/[^A-Z2-7]/g, "") };
   }
-  return value.toUpperCase().replace(/[^A-Z2-7]/g, "");
+  let u: URL;
+  try {
+    u = new URL(value);
+  } catch {
+    throw new InvalidSecret("URI otpauth non valido");
+  }
+  if (u.host.toLowerCase() !== "totp") throw new InvalidSecret("Solo i codici TOTP sono supportati");
+  const secret = u.searchParams.get("secret");
+  if (!secret) throw new InvalidSecret("URI otpauth senza parametro secret");
+  const digits = Number(u.searchParams.get("digits") ?? 6);
+  const period = Number(u.searchParams.get("period") ?? 30);
+  const algo = (u.searchParams.get("algorithm") ?? "SHA1").toUpperCase().replace("-", "");
+  if (![6, 7, 8].includes(digits)) throw new InvalidSecret("Numero di cifre non supportato");
+  if (!Number.isInteger(period) || period < 10 || period > 300) throw new InvalidSecret("Periodo non valido");
+  if (!ALGORITMI[algo]) throw new InvalidSecret(`Algoritmo non supportato: ${algo}`);
+  // label = "Issuer:account" oppure solo "account"; l'issuer nel parametro vince
+  const label = decodeURIComponent(u.pathname.replace(/^\/+/, ""));
+  const [primaParte, ...resto] = label.split(":");
+  const issuer = u.searchParams.get("issuer") ?? (resto.length ? primaParte : undefined);
+  const account = (resto.length ? resto.join(":") : primaParte).trim() || undefined;
+  return {
+    secret: secret.toUpperCase().replace(/[^A-Z2-7]/g, ""),
+    digits,
+    period,
+    algorithm: ALGORITMI[algo],
+    issuer: issuer?.trim() || undefined,
+    account,
+  };
+}
+
+export function normalizeTotpSecret(input: string): string {
+  return parametriTotp(input).secret;
 }
 
 export function base32Decode(secret: string): Bytes {
@@ -58,18 +108,19 @@ export interface TotpCode {
 
 export async function generateTotp(
   secret: string,
-  { period = 30, digits = 6, at = Date.now() }: { period?: number; digits?: number; at?: number } = {}
+  { at = Date.now() }: { at?: number } = {}
 ): Promise<TotpCode> {
+  const p = parametriTotp(secret);
   const key = await window.crypto.subtle.importKey(
     "raw",
-    base32Decode(secret),
-    { name: "HMAC", hash: "SHA-1" }, // RFC 6238: SHA-1 e' l'algoritmo standard
+    base32Decode(p.secret),
+    { name: "HMAC", hash: p.algorithm }, // RFC 6238: SHA-1 e' il default
     false,
     ["sign"]
   );
 
   const seconds = Math.floor(at / 1000);
-  const counter = BigInt(Math.floor(seconds / period));
+  const counter = BigInt(Math.floor(seconds / p.period));
   const buf = new Uint8Array(8);
   new DataView(buf.buffer).setBigUint64(0, counter, false); // big endian
 
@@ -84,8 +135,8 @@ export async function generateTotp(
     mac[offset + 3];
 
   return {
-    code: (binary % 10 ** digits).toString().padStart(digits, "0"),
-    secondsLeft: period - (seconds % period),
-    period,
+    code: (binary % 10 ** p.digits).toString().padStart(p.digits, "0"),
+    secondsLeft: p.period - (seconds % p.period),
+    period: p.period,
   };
 }

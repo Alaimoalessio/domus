@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import Admin from "./pages/Admin";
+import Codici from "./pages/Codici";
 import Login from "./pages/Login";
 import Recovery from "./pages/Recovery";
 import Register from "./pages/Register";
@@ -35,6 +36,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Admin />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/codici"
+            element={
+              <ProtectedRoute>
+                <Codici />
               </ProtectedRoute>
             }
           />

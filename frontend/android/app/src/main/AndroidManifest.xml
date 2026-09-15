@@ -40,4 +40,6 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- solo per inquadrare i QR dei siti; si puo' negare e incollare il codice -->
+    <uses-permission android:name="android.permission.CAMERA" />
 </manifest>

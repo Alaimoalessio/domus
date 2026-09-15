@@ -1,4 +1,4 @@
-import { ArrowUpDown, CloudOff, Loader2, LogOut, Plus, Printer, Search, Settings, ShieldCheck, Star, Stethoscope, Trash2, TriangleAlert, Users } from "lucide-react";
+import { ArrowUpDown, CloudOff, Loader2, LogOut, Plus, Printer, RectangleEllipsis, Search, Settings, ShieldCheck, Star, Stethoscope, Trash2, TriangleAlert, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -215,6 +215,13 @@ export default function Vault() {
               <Users className="h-4 w-4" />
             </Link>
           )}
+          <Link
+            to="/codici"
+            title="Codici 2FA"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100 sm:h-8 sm:w-8"
+          >
+            <RectangleEllipsis className="h-4 w-4" />
+          </Link>
           <Link
             to="/settings"
             title="Impostazioni"

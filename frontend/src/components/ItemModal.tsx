@@ -12,6 +12,7 @@ import { leggiPreferenze } from "../lib/preferenze";
 import { descrizione, ORDINE_TIPI, TIPI, type TipoVoce } from "../lib/tipi";
 import { CustomFields } from "./CustomFields";
 import { PasswordGenerator } from "./PasswordGenerator";
+import { ScannerQr } from "./ScannerQr";
 import { TotpDisplay } from "./TotpDisplay";
 import { Button } from "./ui/button";
 
@@ -338,10 +339,8 @@ export function ItemModal({
             />
             {draft.totp ? (
               <TotpDisplay secret={draft.totp} />
-            ) : (
-              <p className="text-xs text-neutral-500">
-                Incolla il secret base32 del sito, o direttamente l'URI otpauth:// del QR code.
-              </p>
+            ) : readOnly ? null : (
+              <ScannerQr onLetto={(v) => setDraft((d) => ({ ...d, totp: v }))} />
             )}
           </div>
           )}
