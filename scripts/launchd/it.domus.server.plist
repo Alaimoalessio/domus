@@ -2,14 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>it.domus.server</string>
-  <key>ProgramArguments</key><array><string>/Users/disgast/Desktop/projects/vault/scripts/serve.sh</string></array>
-  <key>WorkingDirectory</key><string>/Users/disgast/Desktop/projects/vault</string>
+  <key>ProgramArguments</key><array><string>__DOMUS_DIR__/scripts/serve.sh</string></array>
+  <key>WorkingDirectory</key><string>__DOMUS_DIR__</string>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>5</integer>
-  <key>StandardOutPath</key><string>/Users/disgast/Desktop/projects/vault/logs/server.log</string>
-  <key>StandardErrorPath</key><string>/Users/disgast/Desktop/projects/vault/logs/server.log</string>
+  <key>StandardOutPath</key><string>__DOMUS_DIR__/logs/server.log</string>
+  <key>StandardErrorPath</key><string>__DOMUS_DIR__/logs/server.log</string>
 </dict></plist>

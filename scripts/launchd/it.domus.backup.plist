@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>it.domus.backup</string>
-  <key>ProgramArguments</key><array><string>/Users/disgast/Desktop/projects/vault/scripts/backup.sh</string><string>/Users/disgast/DomusBackup</string></array>
-  <key>WorkingDirectory</key><string>/Users/disgast/Desktop/projects/vault</string>
+  <key>ProgramArguments</key><array><string>__DOMUS_DIR__/scripts/backup.sh</string><string>/Users/disgast/DomusBackup</string></array>
+  <key>WorkingDirectory</key><string>__DOMUS_DIR__</string>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
   <key>StartCalendarInterval</key><dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>0</integer></dict>
-  <key>StandardOutPath</key><string>/Users/disgast/Desktop/projects/vault/logs/backup.log</string>
-  <key>StandardErrorPath</key><string>/Users/disgast/Desktop/projects/vault/logs/backup.log</string>
+  <key>StandardOutPath</key><string>__DOMUS_DIR__/logs/backup.log</string>
+  <key>StandardErrorPath</key><string>__DOMUS_DIR__/logs/backup.log</string>
 </dict></plist>
