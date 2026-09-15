@@ -27,3 +27,6 @@ frontend/dist/
 
 # binari compilati (dmg/apk): si rigenerano
 /release/
+
+# log dei servizi launchd
+/logs/
