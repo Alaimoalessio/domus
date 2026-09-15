@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     recovery_token_minutes: int = 10
 
     allow_registration: bool = True
+    #: tentativi di PIN sbagliati prima che lo sblocco rapido venga cancellato
+    unlock_max_failed: int = 5
+    #: dispositivi con sblocco rapido per utente; oltre, si scarta il piu' vecchio
+    unlock_max_devices: int = 8
     max_users: int = 4
 
     # Soglia oltre la quale il blob va sul filesystem invece che dentro SQLite.

@@ -32,8 +32,8 @@ export function BiometricPanel({ session, email }: { session: Session; email: st
     setBusy(true);
     setErrore("");
     try {
-      if (!api.refreshToken) throw new Error("Sessione non valida: rientra e riprova.");
-      await abilita(session, email, api.refreshToken);
+      if (!api.haSessione()) throw new Error("Sessione non valida: rientra e riprova.");
+      await abilita(session, email);
       await ricarica();
     } catch (err) {
       setErrore(err instanceof Error ? err.message : "Attivazione non riuscita");
@@ -49,10 +49,9 @@ export function BiometricPanel({ session, email }: { session: Session; email: st
 
   if (supporto === null) return null;
 
-  // Degradazione graziosa: senza PRF il pulsante non compare affatto. Nessun
-  // ripiego su PIN: un PIN a sei cifre e' una ventina di bit, e chi ha il
-  // dispositivo salterebbe WebAuthn del tutto per forzarlo offline. Sarebbe un
-  // declassamento venduto come funzione di sicurezza.
+  // Degradazione graziosa: senza PRF il pulsante non compare affatto. Il
+  // ripiego e' il PIN di QuickUnlockPanel, che NON e' forzabile offline
+  // perche' meta' della chiave sta sul server (vedi lib/sblocco.ts).
   if (!supporto.disponibile) {
     return (
       <div className="flex items-start gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-3 text-sm text-neutral-500">

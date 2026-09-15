@@ -188,10 +188,30 @@ export class Api {
     return t;
   }
 
+  /** Una sessione viva (anche solo il refresh token) distingue "bloccato"
+   *  da "uscito": nel primo caso si riparte senza login. */
+  haSessione(): boolean {
+    return this.refreshToken !== null;
+  }
+
+  /** Differenza fra l'orologio del server e quello locale, in millisecondi
+   *  (positiva se il dispositivo e' indietro). Il TOTP la usa per generare
+   *  codici giusti anche su un telefono con l'ora sballata. */
+  derivaOrologioMs = 0;
+
   private async raw(path: string, init: RequestInit, auth: boolean): Promise<Response> {
     const headers = new Headers(init.headers);
     if (auth && this.accessToken) headers.set("Authorization", `Bearer ${this.accessToken}`);
-    return fetch(`${BASE()}${path}`, { ...init, headers });
+    const inizio = Date.now();
+    const res = await fetch(`${BASE()}${path}`, { ...init, headers });
+    // L'header Date ha la precisione del secondo e va letto a meta' del
+    // viaggio di andata e ritorno: basta e avanza per una finestra di 30 s.
+    const data = res.headers.get("Date");
+    if (data) {
+      const server = Date.parse(data);
+      if (!Number.isNaN(server)) this.derivaOrologioMs = server + 500 - (inizio + Date.now()) / 2;
+    }
+    return res;
   }
 
   /** L'access token vive 15 minuti: un 401 su una sessione viva significa
@@ -384,8 +404,50 @@ export class Api {
     return this.json<void>(`/vault/items/${id}`, { method: "DELETE" });
   }
 
+  getItem(id: string) {
+    return this.json<ItemOut>(`/vault/items/${id}`);
+  }
+
   trash() {
     return this.json<TrashItemOut[]>("/vault/trash");
+  }
+
+  // ------------------------------------------------------- sblocco rapido
+  unlockEnroll(verifier: string, deviceLabel: string) {
+    return this.json<{ device_id: string; device_secret: string }>("/auth/unlock/enroll", {
+      method: "POST",
+      body: JSON.stringify({ verifier, device_label: deviceLabel }),
+    });
+  }
+
+  /** Senza bearer: dopo un riavvio il refresh token sta dentro il pacchetto
+   *  che si sta cercando di aprire. */
+  async unlock(deviceId: string, verifier: string): Promise<string> {
+    const r = await this.raw(
+      `/auth/unlock/${deviceId}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verifier }),
+      },
+      false
+    );
+    if (!r.ok) throw await toError(r);
+    return ((await r.json()) as { device_secret: string }).device_secret;
+  }
+
+  /** Un refresh token parcheggiato per lo sblocco rapido, in una famiglia
+   *  separata da quella della sessione viva (vedi lib/sblocco.ts). */
+  async unlockToken(deviceLabel: string): Promise<string> {
+    const t = await this.json<Tokens>("/auth/unlock/token", {
+      method: "POST",
+      headers: { "X-Device-Label": deviceLabel },
+    });
+    return t.refresh_token;
+  }
+
+  unlockForget(deviceId: string) {
+    return this.json<void>(`/auth/unlock/${deviceId}`, { method: "DELETE" });
   }
 
   restoreItem(id: string) {

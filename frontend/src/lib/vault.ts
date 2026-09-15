@@ -119,7 +119,7 @@ const newId = () => window.crypto.randomUUID().replace(/-/g, "");
 
 /** Un'etichetta riconoscibile nell'elenco dei dispositivi: "web" su tre righe
  *  non aiuta a capire quale sia il telefono e quale il portatile. */
-function etichettaDispositivo(): string {
+export function etichettaDispositivo(): string {
   const ua = navigator.userAgent;
   const sistema =
     /Android/i.test(ua) ? "Android"

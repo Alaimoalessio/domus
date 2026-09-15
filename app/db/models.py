@@ -160,6 +160,30 @@ class FileObject(Base):
     __table_args__ = (Index("ix_files_user_hash", "user_id", "blob_hash"),)
 
 
+class UnlockDevice(Base):
+    """Sblocco rapido con PIN su un dispositivo.
+
+    Il PIN non basta a un ladro con il telefono in mano: la chiave che apre
+    il pacchetto locale e' HKDF(pin_key || device_secret), e device_secret
+    sta SOLO qui. Per averlo bisogna presentare il verifier del PIN, e dopo
+    `unlock_max_failed` errori il record sparisce: si torna alla master
+    password. Cosi' un PIN a 6 cifre non e' attaccabile offline, e online
+    ha cinque tentativi."""
+
+    __tablename__ = "unlock_devices"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    #: Argon2id(HKDF(pin_key, "pv1:pin:verify")): il server non vede mai il PIN
+    verifier_hash: Mapped[str] = mapped_column(String(255))
+    #: 32 byte casuali, in chiaro: da soli non aprono nulla
+    device_secret: Mapped[str] = mapped_column(String(64))
+    device_label: Mapped[str] = mapped_column(String(64), default="")
+    failed: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    last_used_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
 

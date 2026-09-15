@@ -13,7 +13,7 @@ from app.core.security import (create_access_token, create_recovery_token,
                                hash_refresh_token, needs_rehash,
                                new_refresh_token, uri_otpauth, verifica_totp,
                                verify_auth_key)
-from app.db.models import RefreshToken, User
+from app.db.models import RefreshToken, UnlockDevice, User
 from app.deps import DB, CurrentUser, RecoveringUser, audit, bearer, utcnow
 from app.schemas import (ChangeMasterPassword, LoginRequest, LogoutRequest, MeResponse,
                          PreloginRequest, PreloginResponse, RecoveryComplete,
@@ -21,7 +21,8 @@ from app.schemas import (ChangeMasterPassword, LoginRequest, LogoutRequest, MeRe
                          RecoveryStartRequest, RecoveryStartResponse, RecoverySetup,
                          RecoveryStatus, RefreshRequest, RegisterRequest,
                          RegisterResponse, SessionOut, TokenResponse, TotpCode,
-                         TotpSetupResponse, TotpStatus)
+                         TotpSetupResponse, TotpStatus, UnlockEnroll,
+                         UnlockEnrollResponse, UnlockRequest, UnlockResponse)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -59,6 +60,14 @@ def _revoke_all(db: Session, user_id: str) -> None:
         )
     ):
         row.revoked_at = utcnow()
+    # Chi rivoca tutto lo fa perche' teme un dispositivo in mani altrui: il
+    # PIN su quel dispositivo non deve sopravvivere alla rotazione.
+    _forget_unlock_devices(db, user_id)
+
+
+def _forget_unlock_devices(db: Session, user_id: str) -> None:
+    for row in db.scalars(select(UnlockDevice).where(UnlockDevice.user_id == user_id)):
+        db.delete(row)
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=201)
@@ -241,6 +250,97 @@ def logout_all(db: DB, user: CurrentUser, request: Request):
     _revoke_all(db, user.id)
     audit(db, request, "auth.logout_all", user.id)
     db.commit()
+
+
+# ----------------------------------------------------------- sblocco rapido
+#
+# Il client conserva {SK, refresh token} cifrati con HKDF(pin_key || device_secret).
+# pin_key la deriva dal PIN con Argon2id; device_secret lo custodisce il server
+# e lo consegna solo a chi presenta il verifier giusto, con cinque tentativi.
+# Un attaccante con il telefono non puo' provare PIN offline; uno con il DB
+# del server ha device_secret ma non il pacchetto cifrato, che sta sul telefono.
+
+
+@router.post("/unlock/enroll", response_model=UnlockEnrollResponse, status_code=201)
+def unlock_enroll(payload: UnlockEnroll, db: DB, user: CurrentUser, request: Request):
+    esistenti = list(
+        db.scalars(
+            select(UnlockDevice)
+            .where(UnlockDevice.user_id == user.id)
+            .order_by(UnlockDevice.created_at)
+        )
+    )
+    for vecchio in esistenti[: max(0, len(esistenti) - settings.unlock_max_devices + 1)]:
+        db.delete(vecchio)
+
+    device = UnlockDevice(
+        user_id=user.id,
+        verifier_hash=hash_auth_key(payload.verifier),
+        device_secret=secrets.token_hex(32),
+        device_label=payload.device_label[:64],
+    )
+    db.add(device)
+    audit(db, request, "auth.unlock.enroll", user.id, device.device_label)
+    db.commit()
+    return UnlockEnrollResponse(device_id=device.id, device_secret=device.device_secret)
+
+
+# Va dichiarata PRIMA di /unlock/{device_id}, o "token" verrebbe letto come id.
+@router.post("/unlock/token", response_model=TokenResponse)
+def unlock_token(db: DB, user: CurrentUser, request: Request):
+    """Un refresh token "parcheggiato", in una famiglia tutta sua.
+
+    Il pacchetto di sblocco deve contenere un token che la sessione viva NON
+    consuma: quella ruota il proprio a ogni rinnovo, e riproporre un token
+    gia' ruotato e' esattamente cio' che la reuse detection punisce
+    abbattendo la famiglia. Il token parcheggiato viene speso solo allo
+    sblocco, e subito rimpiazzato da uno nuovo."""
+    etichetta = request.headers.get("X-Device-Label", "sblocco rapido")[:64]
+    tokens = _issue(db, user, etichetta)
+    db.commit()
+    return tokens
+
+
+@router.post("/unlock/{device_id}", response_model=UnlockResponse)
+def unlock(device_id: str, payload: UnlockRequest, db: DB, request: Request):
+    # Senza bearer: dopo un riavvio dell'app il refresh token sta DENTRO il
+    # pacchetto che si vuole aprire. L'id del dispositivo (128 bit casuali,
+    # noto solo a quel telefono) piu' il verifier sono la credenziale.
+    device = db.get(UnlockDevice, device_id)
+    if device is None:
+        verify_auth_key(None, payload.verifier)  # stesso tempo di risposta
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "sblocco rapido non attivo")
+
+    user = db.get(User, device.user_id)
+    if user is None or user.status != "active":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "account non attivo")
+
+    if not verify_auth_key(device.verifier_hash, payload.verifier):
+        device.failed += 1
+        if device.failed >= settings.unlock_max_failed:
+            db.delete(device)
+            audit(db, request, "auth.unlock.wiped", user.id, device.device_label)
+            db.commit()
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                "troppi tentativi: lo sblocco rapido e' stato disattivato",
+            )
+        db.commit()
+        rimasti = settings.unlock_max_failed - device.failed
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"PIN errato, {rimasti} tentativi rimasti")
+
+    device.failed = 0
+    device.last_used_at = utcnow()
+    db.commit()
+    return UnlockResponse(device_secret=device.device_secret)
+
+
+@router.delete("/unlock/{device_id}", status_code=204)
+def unlock_forget(device_id: str, db: DB, user: CurrentUser):
+    device = db.get(UnlockDevice, device_id)
+    if device is not None and device.user_id == user.id:
+        db.delete(device)
+        db.commit()
 
 
 @router.get("/2fa/status", response_model=TotpStatus)

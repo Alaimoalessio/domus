@@ -11,7 +11,7 @@ import {
   subkey,
   type Bytes,
 } from "./crypto";
-import type { Session } from "./vault";
+import { etichettaDispositivo, type Session } from "./vault";
 
 /**
  * Sblocco biometrico locale con WebAuthn PRF.
@@ -109,12 +109,11 @@ async function chiaveDaPrf(prfOutput: ArrayBuffer): Promise<Bytes> {
 
 type RisultatiPrf = { prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } } };
 
-/** Registra il dispositivo e conserva SK e refresh token cifrati sotto la WK. */
-export async function abilita(
-  session: Session,
-  email: string,
-  refreshToken: string
-): Promise<void> {
+/** Registra il dispositivo e conserva SK e un refresh token PARCHEGGIATO
+ *  cifrati sotto la WK. Parcheggiato, non quello della sessione viva: quello
+ *  ruota ogni 15 minuti e allo sblocco risulterebbe gia' speso, facendo
+ *  scattare la reuse detection contro la propria sessione. */
+export async function abilita(session: Session, email: string): Promise<void> {
   const supporto = await verificaSupporto();
   if (!supporto.disponibile) throw new Error(supporto.motivo);
 
@@ -154,6 +153,7 @@ export async function abilita(
   const credentialId = new Uint8Array(credenziale.rawId);
   const prf = await valutaPrf(credentialId, prfSalt);
   const wk = await chiaveDaPrf(prf);
+  const refreshToken = await api.unlockToken(`sblocco rapido · ${etichettaDispositivo()}`);
 
   const contenuto = new TextEncoder().encode(
     JSON.stringify({ sk: bufferToBase64Url(session.sk), refreshToken })
@@ -237,7 +237,8 @@ export async function sblocca(): Promise<EsitoSblocco> {
 
   try {
     const tokens: Tokens = await api.rinnovaSessione(contenuto.refreshToken);
-    await risalva(record, wk, sk, tokens.refresh_token);
+    const parcheggiato = await api.unlockToken(`sblocco rapido · ${etichettaDispositivo()}`);
+    await risalva(record, wk, sk, parcheggiato);
     return { session: { ...session, isAdmin: tokens.is_admin }, online: true };
   } catch {
     // Server spento o sessione scaduta: la SK e' comunque valida, quindi si

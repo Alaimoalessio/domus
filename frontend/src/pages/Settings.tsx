@@ -14,6 +14,7 @@ import { BiometricPanel } from "../components/BiometricPanel";
 import { ExportPanel } from "../components/ExportPanel";
 import { ImportPanel } from "../components/ImportPanel";
 import { PreferencesPanel } from "../components/PreferencesPanel";
+import { QuickUnlockPanel } from "../components/QuickUnlockPanel";
 import { SessionsPanel } from "../components/SessionsPanel";
 import { TwoFactorPanel } from "../components/TwoFactorPanel";
 import { TrashPanel } from "../components/TrashPanel";
@@ -22,6 +23,7 @@ import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
 import { api, type MeResponse } from "../lib/api";
 import { cancellaSnapshot } from "../lib/offline";
+import { eAppNativa } from "../lib/server";
 import { changeMasterPassword, createRecoveryKit, dataUltimoSnapshot } from "../lib/vault";
 
 export default function Settings() {
@@ -125,9 +127,16 @@ export default function Settings() {
         </section>
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-100">Sblocco biometrico</h2>
-          <BiometricPanel session={session} email={email ?? ""} />
+          <h2 className="mb-4 text-lg font-semibold text-neutral-100">Sblocco rapido</h2>
+          <QuickUnlockPanel session={session} email={email ?? ""} />
         </section>
+
+        {!eAppNativa() && (
+          <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+            <h2 className="mb-4 text-lg font-semibold text-neutral-100">Sblocco biometrico (browser)</h2>
+            <BiometricPanel session={session} email={email ?? ""} />
+          </section>
+        )}
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
           <h2 className="text-lg font-semibold text-neutral-100">Copia offline</h2>

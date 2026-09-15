@@ -760,3 +760,85 @@ def test_disattivare_il_secondo_fattore_richiede_un_codice(clients, app_ctx):
     assert http.post("/api/v1/auth/2fa/disable", headers=utente.auth_headers,
                      json={"code": _codice(setup["secret"], 1)}).status_code == 204
     assert http.get("/api/v1/auth/me", headers=utente.auth_headers).json()["totp_enabled"] is False
+
+
+def test_sblocco_rapido_pin(clients, app_ctx):
+    """Il verifier giusto restituisce sempre lo stesso device_secret; quello
+    sbagliato consuma tentativi e al quinto il record sparisce."""
+    http, _ = app_ctx
+    alice, _ = clients
+
+    verifier = b64(os.urandom(32))
+    r = http.post(
+        "/api/v1/auth/unlock/enroll",
+        headers=alice.auth_headers,
+        json={"verifier": verifier, "device_label": "telefono"},
+    )
+    assert r.status_code == 201, r.text
+    device_id, segreto = r.json()["device_id"], r.json()["device_secret"]
+    assert len(segreto) == 64
+
+    ok = http.post(f"/api/v1/auth/unlock/{device_id}", json={"verifier": verifier})
+    assert ok.status_code == 200 and ok.json()["device_secret"] == segreto
+
+    # nessun bearer richiesto: dopo un riavvio dell'app il token e' nel pacchetto
+    for tentativo in range(1, 5):
+        ko = http.post(f"/api/v1/auth/unlock/{device_id}", json={"verifier": b64(os.urandom(32))})
+        assert ko.status_code == 401, ko.text
+        assert f"{5 - tentativo} tentativi" in ko.json()["detail"]
+    # quinto errore: il record e' cancellato, anche il PIN giusto non vale piu'
+    ko = http.post(f"/api/v1/auth/unlock/{device_id}", json={"verifier": b64(os.urandom(32))})
+    assert ko.status_code == 404
+    assert http.post(f"/api/v1/auth/unlock/{device_id}", json={"verifier": verifier}).status_code == 404
+
+    # id inesistente: stessa risposta di un id cancellato
+    assert http.post(f"/api/v1/auth/unlock/{'0' * 32}", json={"verifier": verifier}).status_code == 404
+
+
+def test_sblocco_rapido_cade_con_logout_all_e_delete(clients, app_ctx):
+    http, _ = app_ctx
+    alice, bob = clients
+    def iscrivi(cl):
+        verifier = b64(os.urandom(32))
+        r = http.post("/api/v1/auth/unlock/enroll", headers=cl.auth_headers, json={"verifier": verifier})
+        return r.json()["device_id"], verifier
+
+    dev_a, ver_a = iscrivi(alice)
+    dev_b, ver_b = iscrivi(bob)
+
+    # bob non puo' cancellare il dispositivo di alice
+    assert http.delete(f"/api/v1/auth/unlock/{dev_a}", headers=bob.auth_headers).status_code == 204
+    assert http.post(f"/api/v1/auth/unlock/{dev_a}", json={"verifier": ver_a}).status_code == 200
+
+    # il proprietario si'
+    assert http.delete(f"/api/v1/auth/unlock/{dev_a}", headers=alice.auth_headers).status_code == 204
+    assert http.post(f"/api/v1/auth/unlock/{dev_a}", json={"verifier": ver_a}).status_code == 404
+
+    # logout-all rivoca anche lo sblocco rapido
+    assert http.post("/api/v1/auth/logout-all", headers=bob.auth_headers).status_code == 204
+    assert http.post(f"/api/v1/auth/unlock/{dev_b}", json={"verifier": ver_b}).status_code == 404
+
+
+def test_token_parcheggiato_non_interferisce_con_la_sessione_viva(clients, app_ctx):
+    """Ruotare la sessione viva non invalida il token parcheggiato, e viceversa."""
+    http, _ = app_ctx
+    alice, _ = clients
+    dave = nuovo_utente(http, alice, "dave@family.local", "master-password-di-dave-2026")
+
+    parcheggiato = http.post("/api/v1/auth/unlock/token", headers=dave.auth_headers).json()
+    # la sessione viva ruota due volte
+    r1 = http.post("/api/v1/auth/refresh", json={"refresh_token": dave.refresh_token})
+    assert r1.status_code == 200, r1.text
+    vivo = r1.json()
+    vivo = http.post("/api/v1/auth/refresh", json={"refresh_token": vivo["refresh_token"]}).json()
+    assert vivo["access_token"]
+
+    # il parcheggiato e' ancora buono, e spenderlo non tocca la sessione viva
+    aperto = http.post("/api/v1/auth/refresh", json={"refresh_token": parcheggiato["refresh_token"]})
+    assert aperto.status_code == 200, aperto.text
+    ancora = http.post("/api/v1/auth/refresh", json={"refresh_token": vivo["refresh_token"]})
+    assert ancora.status_code == 200
+
+    # compare fra le sessioni con la sua etichetta
+    sessioni = http.get("/api/v1/auth/sessions", headers={"Authorization": f"Bearer {ancora.json()['access_token']}"}).json()
+    assert any(s["device_label"] == "sblocco rapido" for s in sessioni)

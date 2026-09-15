@@ -1,5 +1,5 @@
-import { ArrowUpDown, CloudOff, Loader2, LogOut, Plus, Printer, RectangleEllipsis, Search, Settings, ShieldCheck, Star, Stethoscope, Trash2, TriangleAlert, Users } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowUpDown, Check, CloudOff, Copy, KeyRound, Loader2, Lock, LogOut, Plus, Printer, RectangleEllipsis, Search, Settings, ShieldCheck, Star, Stethoscope, Trash2, TriangleAlert, Users } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { HealthPanel } from "../components/HealthPanel";
@@ -7,8 +7,10 @@ import { descrizione } from "../lib/tipi";
 import { ItemModal } from "../components/ItemModal";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
+import { useVault } from "../context/VaultContext";
 import { api } from "../lib/api";
-import { caricaOffline, deleteItem, syncVault, updateItem, VAULT_VUOTO, type DecryptedItem, type VaultState } from "../lib/vault";
+import { copiaSegreto } from "../lib/clipboard";
+import { deleteItem, updateItem, type DecryptedItem } from "../lib/vault";
 
 /** Una nota non ha username e una carta nemmeno: mostrare "—" sprecherebbe la
  *  riga proprio sui tipi dove il nome da solo dice meno. */
@@ -21,57 +23,34 @@ function sottotitolo(item: DecryptedItem): string {
 }
 
 export default function Vault() {
-  const { session, signOut } = useAuth();
-  const [stato, setStato] = useState<VaultState>(VAULT_VUOTO);
+  const { session, signOut, lock } = useAuth();
+  const { stato, loading, error, refresh } = useVault();
   const items = stato.items;
   const files = stato.files;
   const unreadable = stato.unreadable;
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [needsKit, setNeedsKit] = useState(false);
   const [saluteAperta, setSaluteAperta] = useState(false);
   const [ordine, setOrdine] = useState<"nome" | "recenti">("nome");
-  // Il cursore deve restare stabile fra un refresh e l'altro senza rigenerare
-  // la callback, altrimenti l'effetto si riattacca a ogni sincronizzazione.
-  const statoRef = useRef<VaultState>(VAULT_VUOTO);
   const campoRicerca = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<DecryptedItem | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  // Aggiornamento ottimistico: segnare un preferito deve sembrare istantaneo,
+  // non far aspettare una risposta dal server per un asterisco.
+  const [preferitiInCorso, setPreferitiInCorso] = useState<Record<string, boolean>>({});
+  // Copia rapida dall'elenco: l'operazione piu' frequente non deve passare
+  // dalla maschera di modifica.
+  const [copiato, setCopiato] = useState<string>("");
 
-  /** `completo` forza il ricaricamento da zero; altrimenti chiede solo il delta. */
-  const refresh = useCallback(
-    async (completo = false) => {
-      if (!session) return;
-      try {
-        if (session.offline) {
-          const locale = await caricaOffline(session);
-          statoRef.current = locale;
-          setStato(locale);
-          setError("");
-          setLoading(false);
-          return;
-        }
-        const aggiornato = await syncVault(session, completo ? null : statoRef.current);
-        statoRef.current = aggiornato;
-        setStato(aggiornato);
-        setError("");
-        // Chi viene approvato dopo la registrazione non passa mai dalla
-        // schermata del kit: senza questo avviso resterebbe senza, e non lo
-        // saprebbe.
-        setNeedsKit(!(await api.me()).recovery_configured);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Sincronizzazione non riuscita");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [session]
-  );
-
+  // Chi viene approvato dopo la registrazione non passa mai dalla schermata
+  // del kit: senza questo avviso resterebbe senza, e non lo saprebbe.
   useEffect(() => {
-    void refresh(true);
-  }, [refresh]);
+    if (!session || session.offline) return;
+    api
+      .me()
+      .then((me) => setNeedsKit(!me.recovery_configured))
+      .catch(() => {});
+  }, [session]);
 
   // Scorciatoie da tastiera. "/" per cercare e' la convenzione del web; il
   // tasto va ignorato mentre si scrive, o non si potrebbe piu' digitare una
@@ -106,40 +85,30 @@ export default function Vault() {
     return () => document.removeEventListener("keydown", suTasto);
   }, [session, modalOpen]);
 
-  // Le modifiche fatte su un altro dispositivo arrivano quando la scheda torna
-  // in primo piano: un polling continuo terrebbe sveglio il telefono per nulla.
-  useEffect(() => {
-    // Due segnali distinti: il ritorno alla scheda, e il ritorno alla finestra
-    // dopo essere passati a un'altra applicazione. Legare anche il secondo a
-    // visibilityState lo renderebbe codice morto, perche' quando la finestra
-    // riceve il focus la scheda e' gia' visibile.
-    const suFocus = () => void refresh();
-    const suVisibilita = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    document.addEventListener("visibilitychange", suVisibilita);
-    window.addEventListener("focus", suFocus);
-    return () => {
-      document.removeEventListener("visibilitychange", suVisibilita);
-      window.removeEventListener("focus", suFocus);
-    };
-  }, [refresh]);
-
   if (!session) return null;
 
   // I preferiti stanno sempre in cima, qualunque sia l'ordinamento: e' il
   // motivo per cui li si segna.
+  // La ricerca guarda anche note e campi personalizzati: il numero cliente
+  // finito in un campo libero deve essere trovabile come il nome del sito.
+  const q = query.toLowerCase();
   const visible = items
     .filter((i) =>
-      [i.payload.name, i.payload.username, i.payload.url]
+      [
+        i.payload.name,
+        i.payload.username,
+        i.payload.url,
+        i.payload.notes,
+        ...(i.payload.campi ?? []).flatMap((c) => [c.nome, c.nascosto ? "" : c.valore]),
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
-        .includes(query.toLowerCase())
+        .includes(q)
     )
     .sort((a, b) => {
-      const pa = a.payload.preferito ? 0 : 1;
-      const pb = b.payload.preferito ? 0 : 1;
+      const pa = ePreferito(a) ? 0 : 1;
+      const pb = ePreferito(b) ? 0 : 1;
       if (pa !== pb) return pa - pb;
       return ordine === "nome"
         ? a.payload.name.localeCompare(b.payload.name, "it")
@@ -147,25 +116,26 @@ export default function Vault() {
     });
 
   const alternaPreferito = async (item: DecryptedItem) => {
-    // Aggiornamento ottimistico: segnare un preferito deve sembrare istantaneo,
-    // non far aspettare una risposta dal server per un asterisco.
     const invertito = !item.payload.preferito;
-    const precedente = statoRef.current;
-    const ottimistico = {
-      ...precedente,
-      items: precedente.items.map((i) =>
-        i.id === item.id ? { ...i, payload: { ...i.payload, preferito: invertito } } : i
-      ),
-    };
-    statoRef.current = ottimistico;
-    setStato(ottimistico);
+    setPreferitiInCorso((p) => ({ ...p, [item.id]: invertito }));
     try {
       await updateItem(session, item, { ...item.payload, preferito: invertito });
-      void refresh();
-    } catch {
-      statoRef.current = precedente;
-      setStato(precedente);
+      await refresh();
+    } finally {
+      setPreferitiInCorso((p) => {
+        const resto = { ...p };
+        delete resto[item.id];
+        return resto;
+      });
     }
+  };
+  const ePreferito = (item: DecryptedItem) => preferitiInCorso[item.id] ?? !!item.payload.preferito;
+
+  const copia = async (chiave: string, testo: string | undefined) => {
+    if (!testo) return;
+    await copiaSegreto(testo);
+    setCopiato(chiave);
+    setTimeout(() => setCopiato((c) => (c === chiave ? "" : c)), 1500);
   };
 
   const remove = async (item: DecryptedItem) => {
@@ -229,7 +199,12 @@ export default function Vault() {
           >
             <Settings className="h-4 w-4" />
           </Link>
-          <Button variant="ghost" size="icon" onClick={logout} title="Esci">
+          {!session.offline && (
+            <Button variant="ghost" size="icon" onClick={lock} title="Blocca (la sessione resta)">
+              <Lock className="h-4 w-4" />
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" onClick={logout} title="Esci (rimuove PIN e impronta da questo dispositivo)">
             <LogOut className="h-4 w-4" />
           </Button>
         </div>
@@ -363,6 +338,34 @@ export default function Vault() {
                   <div className="truncate font-medium text-neutral-100">{item.payload.name}</div>
                   <div className="truncate text-sm text-neutral-500">{sottotitolo(item)}</div>
                 </button>
+                {item.payload.username && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    title={`Copia utente: ${item.payload.username}`}
+                    onClick={() => copia(`${item.id}:u`, item.payload.username)}
+                  >
+                    {copiato === `${item.id}:u` ? (
+                      <Check className="h-4 w-4 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-4 w-4 text-neutral-500" />
+                    )}
+                  </Button>
+                )}
+                {item.payload.password && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    title="Copia password"
+                    onClick={() => copia(`${item.id}:p`, item.payload.password)}
+                  >
+                    {copiato === `${item.id}:p` ? (
+                      <Check className="h-4 w-4 text-emerald-400" />
+                    ) : (
+                      <KeyRound className="h-4 w-4 text-neutral-500" />
+                    )}
+                  </Button>
+                )}
                 {/* Il cestino resta visibile di default e si nasconde solo
                     dove esiste un puntatore: su un telefono l'hover non c'e',
                     e con opacity-0 di base non compariva mai — la voce non era
@@ -371,12 +374,12 @@ export default function Vault() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    title={item.payload.preferito ? "Togli dai preferiti" : "Aggiungi ai preferiti"}
+                    title={ePreferito(item) ? "Togli dai preferiti" : "Aggiungi ai preferiti"}
                     onClick={() => alternaPreferito(item)}
-                    className={item.payload.preferito ? "opacity-100" : "opacity-100 md:opacity-0 md:group-hover:opacity-100"}
+                    className={ePreferito(item) ? "opacity-100" : "opacity-100 md:opacity-0 md:group-hover:opacity-100"}
                   >
                     <Star
-                      className={`h-4 w-4 ${item.payload.preferito ? "fill-amber-400 text-amber-400" : "text-neutral-500"}`}
+                      className={`h-4 w-4 ${ePreferito(item) ? "fill-amber-400 text-amber-400" : "text-neutral-500"}`}
                     />
                   </Button>
                 )}

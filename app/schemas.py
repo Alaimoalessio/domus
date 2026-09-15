@@ -178,6 +178,24 @@ class TotpSetupResponse(Secure):
     otpauth_uri: str
 
 
+class UnlockEnroll(BaseModel):
+    verifier: str = Field(min_length=20, max_length=200)
+    device_label: str = Field(default="", max_length=64)
+
+
+class UnlockEnrollResponse(BaseModel):
+    device_id: str
+    device_secret: str
+
+
+class UnlockRequest(BaseModel):
+    verifier: str = Field(min_length=20, max_length=200)
+
+
+class UnlockResponse(BaseModel):
+    device_secret: str
+
+
 class TotpCode(BaseModel):
     code: str = Field(min_length=6, max_length=8)
 

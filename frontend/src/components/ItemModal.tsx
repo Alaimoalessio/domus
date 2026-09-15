@@ -5,9 +5,10 @@ import { useModaleTastiera } from "../lib/useModaleTastiera";
 
 import type { FileOut } from "../lib/api";
 import type { DecryptedItem, ItemPayload, Session } from "../lib/vault";
-import { api } from "../lib/api";
-import { createItem, decryptFileMeta, downloadFile, updateItem, uploadFile } from "../lib/vault";
+import { api, ApiError } from "../lib/api";
+import { createItem, decryptFileMeta, decryptItem, downloadFile, updateItem, uploadFile } from "../lib/vault";
 import type { FileMeta } from "../lib/vault";
+import { copiaSegreto } from "../lib/clipboard";
 import { leggiPreferenze } from "../lib/preferenze";
 import { descrizione, ORDINE_TIPI, TIPI, type TipoVoce } from "../lib/tipi";
 import { CustomFields } from "./CustomFields";
@@ -50,7 +51,24 @@ export function ItemModal({
   // l'elenco mostrava solo "244 KB", che non dice nulla su cosa sia il file.
   const [nomi, setNomi] = useState<Record<string, FileMeta>>({});
   const fileInput = useRef<HTMLInputElement>(null);
-  const contenitore = useModaleTastiera(onClose);
+  // La voce come sta ORA sul server, quando il salvataggio trova una revision
+  // piu' nuova della nostra: modificata da un altro dispositivo nel frattempo.
+  const [conflitto, setConflitto] = useState<DecryptedItem | null>(null);
+  // La revision da cui partire per il prossimo salvataggio: quella del server
+  // dopo un conflitto, altrimenti quella con cui la maschera e' stata aperta.
+  // Il prop `item` non si aggiorna con il refresh del vault, quindi va tenuta
+  // a parte, o il secondo salvataggio ricadrebbe nello stesso 409.
+  const [baseServer, setBaseServer] = useState<DecryptedItem | null>(null);
+
+  // Escape, clic fuori, la X: tutte strade che prima buttavano via il lavoro
+  // in silenzio. Con modifiche in sospeso si chiede conferma.
+  const originale = JSON.stringify((baseServer ?? item)?.payload ?? EMPTY);
+  const sporco = !readOnly && JSON.stringify(draft) !== originale;
+  const chiudi = () => {
+    if (sporco && !window.confirm("Ci sono modifiche non salvate. Chiudere senza salvare?")) return;
+    onClose();
+  };
+  const contenitore = useModaleTastiera(chiudi);
 
   useEffect(() => {
     setDraft(item?.payload ?? EMPTY);
@@ -79,25 +97,11 @@ export function ItemModal({
   const set = (key: keyof ItemPayload) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setDraft((d) => ({ ...d, [key]: e.target.value }));
 
-  /** La clipboard e' leggibile da qualunque app: si svuota da sola dopo il
-   *  tempo scelto nelle impostazioni. */
   const copyPassword = async () => {
     if (!draft.password) return;
-    const secondi = leggiPreferenze().secondiClipboard;
-    await navigator.clipboard.writeText(draft.password);
+    await copiaSegreto(draft.password);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    if (secondi === 0) return;
-    setTimeout(async () => {
-      try {
-        const current = await navigator.clipboard.readText();
-        if (current === draft.password) await navigator.clipboard.writeText("");
-      } catch {
-        // Senza permesso di lettura si svuota comunque: meglio perdere un
-        // "copia" altrui che lasciare una password in giro.
-        await navigator.clipboard.writeText("").catch(() => {});
-      }
-    }, secondi * 1000);
   };
 
   const save = async () => {
@@ -110,11 +114,25 @@ export function ItemModal({
         ...draft,
         campi: (draft.campi ?? []).filter((c) => c.nome.trim() || c.valore.trim()),
       };
-      if (item) await updateItem(session, item, ripulito);
+      // In caso di conflitto gia' visto, si sovrascrive partendo dalla
+      // revision del server: e' la scelta esplicita dell'utente.
+      const base = baseServer ?? item;
+      if (base) await updateItem(session, base, ripulito);
       else await createItem(session, tipo, ripulito);
       onSaved();
       onClose();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && item) {
+        try {
+          const attuale = await decryptItem(session, await api.getItem(item.id));
+          setConflitto(attuale);
+          setBaseServer(attuale);
+          setError("");
+        } catch {
+          setError("Questa voce e' cambiata su un altro dispositivo e non riesco a ricaricarla.");
+        }
+        return;
+      }
       setError(err instanceof Error ? err.message : "Salvataggio non riuscito");
     } finally {
       setBusy("");
@@ -178,7 +196,7 @@ export function ItemModal({
         // Clic fuori dalla modale la chiude, ma solo se il gesto e' iniziato
         // fuori: altrimenti trascinare una selezione dal testo verso il bordo
         // chiuderebbe la finestra e farebbe perdere quanto scritto.
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) chiudi();
       }}
     >
       <div
@@ -192,7 +210,7 @@ export function ItemModal({
           <h2 className="text-lg font-semibold text-neutral-100">
             {readOnly ? "Voce (sola lettura)" : item ? "Modifica voce" : "Nuova voce"}
           </h2>
-          <button onClick={onClose} className="text-neutral-500 transition hover:text-neutral-200">
+          <button onClick={chiudi} className="text-neutral-500 transition hover:text-neutral-200">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -414,6 +432,33 @@ export function ItemModal({
             </div>
           )}
 
+          {conflitto && (
+            <div className="space-y-3 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-3 text-sm text-amber-200/90">
+              <div>
+                Questa voce e' stata modificata da un altro dispositivo mentre la stavi cambiando
+                (ultima modifica {new Date(conflitto.updatedAt).toLocaleString("it-IT")}). Le tue
+                modifiche sono ancora qui: puoi sovrascrivere la versione del server, oppure
+                scartarle e vedere quella nuova.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={save} disabled={busy !== ""}>
+                  Sovrascrivi con le mie modifiche
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setDraft(conflitto.payload);
+                    setConflitto(null);
+                    onSaved();
+                  }}
+                >
+                  Scarta e mostra la versione del server
+                </Button>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
               {error}
@@ -422,7 +467,7 @@ export function ItemModal({
         </div>
 
         <div className="flex justify-end gap-3 border-t border-neutral-800 px-6 py-4">
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={chiudi}>
             {readOnly ? "Chiudi" : "Annulla"}
           </Button>
           {!readOnly && (

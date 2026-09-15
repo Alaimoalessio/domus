@@ -5,12 +5,17 @@ import { Link } from "react-router-dom";
 import { AggiungiCodice } from "../components/AggiungiCodice";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../context/AuthContext";
+import { api } from "../lib/api";
+import { copiaSegreto } from "../lib/clipboard";
 import { generateTotp } from "../lib/crypto";
-import { useVault } from "../lib/useVault";
+import { useVault } from "../context/VaultContext";
 import type { DecryptedItem } from "../lib/vault";
 
 interface Codice {
   code: string;
+  /** Il codice della finestra successiva: quando mancano pochi secondi e'
+   *  quello che conviene copiare, o scade prima di essere incollato. */
+  prossimo: string;
   secondsLeft: number;
   period: number;
 }
@@ -73,7 +78,7 @@ function Card({ item, codice }: { item: DecryptedItem; codice?: Codice }) {
 
   const copia = async () => {
     if (!code) return;
-    await navigator.clipboard.writeText(code);
+    await copiaSegreto(code);
     setCopiato(true);
     setTimeout(() => setCopiato(false), 1500);
   };
@@ -105,13 +110,20 @@ function Card({ item, codice }: { item: DecryptedItem; codice?: Codice }) {
           {code ? `${code.slice(0, meta)} ${code.slice(meta)}` : "··· ···"}
         </div>
       </div>
-      {copiato ? (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center text-emerald-400">
-          <Check className="h-5 w-5" />
-        </div>
-      ) : codice ? (
-        <Anello secondsLeft={codice.secondsLeft} period={codice.period} />
-      ) : null}
+      <div className="flex shrink-0 flex-col items-center gap-1">
+        {copiato ? (
+          <div className="flex h-10 w-10 items-center justify-center text-emerald-400">
+            <Check className="h-5 w-5" />
+          </div>
+        ) : codice ? (
+          <Anello secondsLeft={codice.secondsLeft} period={codice.period} />
+        ) : null}
+        {codice && urgente && !copiato && (
+          <span className="font-mono text-[11px] tabular-nums text-neutral-500" title="Prossimo codice">
+            {codice.prossimo.slice(0, meta)} {codice.prossimo.slice(meta)}
+          </span>
+        )}
+      </div>
     </button>
   );
 }
@@ -123,7 +135,7 @@ function Card({ item, codice }: { item: DecryptedItem; codice?: Codice }) {
  */
 export default function Codici() {
   const { session } = useAuth();
-  const { stato, loading, error, refresh } = useVault(session);
+  const { stato, loading, error, refresh } = useVault();
   const [query, setQuery] = useState("");
   const [codici, setCodici] = useState<Record<string, Codice>>({});
   const [aggiungi, setAggiungi] = useState(false);
@@ -143,14 +155,22 @@ export default function Codici() {
 
   // Un solo orologio per tutte le card: N intervalli separati andrebbero fuori
   // fase e farebbero cambiare i codici a scatti diversi.
+  //
+  // L'ora e' quella del server, non del telefono: un orologio indietro di
+  // 40 secondi produrrebbe codici sempre sbagliati senza alcun errore. La
+  // deriva la misura il client API sull'header Date di ogni risposta.
+  const [deriva, setDeriva] = useState(0);
   useEffect(() => {
     let annullato = false;
     const tick = async () => {
-      const at = Date.now();
+      const at = Date.now() + api.derivaOrologioMs;
+      setDeriva(api.derivaOrologioMs);
       const voci = await Promise.all(
         con2fa.map(async (i) => {
           try {
-            return [i.id, await generateTotp(i.payload.totp!, { at })] as const;
+            const ora = await generateTotp(i.payload.totp!, { at });
+            const dopo = await generateTotp(i.payload.totp!, { at: at + ora.period * 1000 });
+            return [i.id, { ...ora, prossimo: dopo.code }] as const;
           } catch {
             return null;
           }
@@ -236,6 +256,14 @@ export default function Codici() {
               <Card key={item.id} item={item} codice={codici[item.id]} />
             ))}
           </div>
+        )}
+
+        {Math.abs(deriva) > 20_000 && (
+          <p className="mt-6 rounded-lg border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-center text-xs text-amber-200/90">
+            L'orologio di questo dispositivo e' {Math.abs(Math.round(deriva / 1000))} secondi{" "}
+            {deriva > 0 ? "indietro" : "avanti"} rispetto al server: i codici qui sono corretti lo
+            stesso, ma conviene attivare l'ora automatica nelle impostazioni del sistema.
+          </p>
         )}
 
         {con2fa.length > 0 && (

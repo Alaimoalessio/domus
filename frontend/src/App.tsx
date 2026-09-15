@@ -2,8 +2,10 @@ import { useState, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { VaultProvider } from "./context/VaultContext";
 import Admin from "./pages/Admin";
 import Codici from "./pages/Codici";
+import Lock from "./pages/Lock";
 import Login from "./pages/Login";
 import Recovery from "./pages/Recovery";
 import Register from "./pages/Register";
@@ -13,7 +15,8 @@ import Vault from "./pages/Vault";
 import { eAppNativa, leggiServer } from "./lib/server";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, locked } = useAuth();
+  if (!isAuthenticated && locked) return <Navigate to="/lock" replace />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
@@ -26,9 +29,11 @@ export default function App() {
 
   return (
     <AuthProvider>
+      <VaultProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/lock" element={<Lock />} />
           <Route path="/register" element={<Register />} />
           <Route path="/recovery" element={<Recovery />} />
           <Route
@@ -65,6 +70,7 @@ export default function App() {
           />
         </Routes>
       </BrowserRouter>
+      </VaultProvider>
     </AuthProvider>
   );
 }
